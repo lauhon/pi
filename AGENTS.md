@@ -26,6 +26,12 @@
 - If you need clarification, ask directly — don't guess
 - When uncertain between options, present them briefly and let me choose
 
+## Git Operations
+
+- **Always ask before** running any git commands (`git commit`, `git push`, `git rm`, `git reset`, `git checkout`, `git branch`, `git merge`, `git rebase`, `git stash`, `git tag`, etc.)
+- Present the exact command(s) you intend to run and wait for approval
+- This applies to all git-related operations without exception
+
 ## Context Reset
 
 When a task is completely done:
