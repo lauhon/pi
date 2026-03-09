@@ -9,5 +9,8 @@ node_modules/
 npm/
 git/
 
+# Binaries (shipped by pi, large)
+bin/
+
 # OS
 .DS_Store
