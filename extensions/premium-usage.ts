@@ -160,6 +160,13 @@ This is mandatory because each normal user message costs a premium request, but 
 						const slashCommands: SlashCommand[] = [
 							{ name: "usage", description: "Show premium request usage stats" },
 							{ name: "compact", description: "Compact conversation context" },
+							{ name: "model", description: "Show current model or switch (e.g. /model sonnet)" },
+							{ name: "tools", description: "Show active tools or toggle (e.g. /tools -read)" },
+							{ name: "thinking", description: "Show/set thinking level (off|minimal|low|medium|high|xhigh)" },
+							{ name: "name", description: "Set session name (e.g. /name refactor auth)" },
+							{ name: "context", description: "Show detailed context window usage" },
+							{ name: "session", description: "Show session info (file, entries, branch depth)" },
+							{ name: "commands", description: "List all available slash commands" },
 							{ name: "help", description: "Show available commands" },
 						];
 						const autocompleteProvider = new CombinedAutocompleteProvider(slashCommands, process.cwd());
@@ -196,8 +203,187 @@ This is mandatory because each normal user message costs a premium request, but 
 									editor.setText("");
 									return true;
 								}
+								case "model": {
+									if (!args) {
+										// Show current model
+										const model = ctx.model;
+										statusMessage = model
+											? `🤖 Current model: ${model.provider}/${model.id}`
+											: "🤖 No model selected";
+									} else {
+										// Search for model by name
+										const allModels = ctx.modelRegistry.getAll();
+										const query = args.toLowerCase();
+										const match = allModels.find(
+											(m: any) =>
+												m.id.toLowerCase().includes(query) ||
+												m.name?.toLowerCase().includes(query),
+										);
+										if (match) {
+											const success = pi.setModel(match);
+											statusMessage = success
+												? `✓ Switched to ${match.provider}/${match.id}`
+												: `✗ No API key for ${match.provider}/${match.id}`;
+										} else {
+											// List available models
+											const modelNames = allModels
+												.map((m: any) => `${m.provider}/${m.id}`)
+												.slice(0, 15)
+												.join(", ");
+											statusMessage = `✗ No model matching "${args}". Available: ${modelNames}${allModels.length > 15 ? "..." : ""}`;
+										}
+									}
+									editor.setText("");
+									return true;
+								}
+								case "tools": {
+									const active = pi.getActiveTools();
+									const all = pi.getAllTools();
+									if (!args) {
+										// Show active tools
+										const activeNames = active.join(", ");
+										const allNames = all.map((t: any) => t.name);
+										const inactive = allNames.filter((n: string) => !active.includes(n));
+										statusMessage = `🔧 Active: ${activeNames}${inactive.length ? ` · Inactive: ${inactive.join(", ")}` : ""}`;
+									} else {
+										// Toggle tools: +name to enable, -name to disable
+										const newActive = [...active];
+										const tokens = args.split(/\s+/);
+										const changes: string[] = [];
+										for (const token of tokens) {
+											if (token.startsWith("+")) {
+												const name = token.slice(1);
+												if (!newActive.includes(name)) {
+													newActive.push(name);
+													changes.push(`+${name}`);
+												}
+											} else if (token.startsWith("-")) {
+												const name = token.slice(1);
+												const idx = newActive.indexOf(name);
+												if (idx >= 0) {
+													newActive.splice(idx, 1);
+													changes.push(`-${name}`);
+												}
+											} else {
+												// Toggle
+												const idx = newActive.indexOf(token);
+												if (idx >= 0) {
+													newActive.splice(idx, 1);
+													changes.push(`-${token}`);
+												} else {
+													newActive.push(token);
+													changes.push(`+${token}`);
+												}
+											}
+										}
+										pi.setActiveTools(newActive);
+										statusMessage = `✓ Tools updated: ${changes.join(" ")} · Active: ${newActive.join(", ")}`;
+									}
+									editor.setText("");
+									return true;
+								}
+								case "thinking": {
+									if (!args) {
+										const level = pi.getThinkingLevel();
+										statusMessage = `🧠 Thinking level: ${level}`;
+									} else {
+										const validLevels = ["off", "minimal", "low", "medium", "high", "xhigh"];
+										const level = args.toLowerCase();
+										if (validLevels.includes(level)) {
+											pi.setThinkingLevel(level as any);
+											statusMessage = `✓ Thinking level set to: ${level}`;
+										} else {
+											statusMessage = `✗ Invalid level "${args}". Valid: ${validLevels.join(", ")}`;
+										}
+									}
+									editor.setText("");
+									return true;
+								}
+								case "name": {
+									if (!args) {
+										const name = pi.getSessionName();
+										statusMessage = name
+											? `📝 Session name: ${name}`
+											: "📝 No session name set. Use /name <name> to set one.";
+									} else {
+										pi.setSessionName(args);
+										statusMessage = `✓ Session name set to: ${args}`;
+									}
+									editor.setText("");
+									return true;
+								}
+								case "context": {
+									const usage = ctx.getContextUsage();
+									if (usage) {
+										const pct = ((usage.tokens / usage.limit) * 100).toFixed(1);
+										const used = (usage.tokens / 1000).toFixed(1);
+										const limit = (usage.limit / 1000).toFixed(0);
+										const bar = "█".repeat(Math.round(Number(pct) / 5)) + "░".repeat(20 - Math.round(Number(pct) / 5));
+										statusMessage = `📊 Context: ${used}k / ${limit}k tokens (${pct}%) [${bar}]`;
+									} else {
+										statusMessage = "📊 Context usage unavailable";
+									}
+									editor.setText("");
+									return true;
+								}
+								case "session": {
+									const sessionFile = ctx.sessionManager.getSessionFile?.() ?? "ephemeral";
+									const entries = ctx.sessionManager.getEntries();
+									const branch = ctx.sessionManager.getBranch();
+									const leafId = ctx.sessionManager.getLeafId?.();
+									const name = pi.getSessionName();
+									const model = ctx.model;
+
+									// Count message types
+									let userMsgs = 0, assistantMsgs = 0, toolCalls = 0;
+									for (const entry of branch) {
+										if (entry.type === "message") {
+											if (entry.message?.role === "user") userMsgs++;
+											else if (entry.message?.role === "assistant") assistantMsgs++;
+											else if (entry.message?.role === "toolResult") toolCalls++;
+										}
+									}
+
+									// Get duration from first to last entry
+									let duration = "";
+									if (branch.length >= 2) {
+										const first = branch[0]?.message?.timestamp || branch[0]?.timestamp;
+										const last = branch[branch.length - 1]?.message?.timestamp || branch[branch.length - 1]?.timestamp;
+										if (first && last) {
+											const mins = Math.round((last - first) / 60000);
+											duration = mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`;
+										}
+									}
+
+									let msg = `📁 Session: ${name ? `"${name}" · ` : ""}`;
+									msg += `${entries.length} total entries · ${branch.length} in branch`;
+									msg += ` · ${userMsgs} user · ${assistantMsgs} assistant · ${toolCalls} tool calls`;
+									if (duration) msg += ` · Duration: ${duration}`;
+									if (model) msg += ` · Model: ${model.provider}/${model.id}`;
+									msg += ` · File: ${sessionFile}`;
+									statusMessage = msg;
+									editor.setText("");
+									return true;
+								}
+								case "commands": {
+									const commands = pi.getCommands();
+									const grouped: Record<string, string[]> = {};
+									for (const cmd of commands) {
+										const src = cmd.source;
+										if (!grouped[src]) grouped[src] = [];
+										grouped[src].push(`/${cmd.name}${cmd.description ? ` - ${cmd.description}` : ""}`);
+									}
+									let msg = "📋 Available commands:";
+									for (const [source, cmds] of Object.entries(grouped)) {
+										msg += ` [${source}] ${cmds.join(", ")}`;
+									}
+									msg += " · Built-in: /new /fork /tree /model /reload /resume (use from main editor)";
+									statusMessage = msg;
+									editor.setText("");
+									return true;
+								}
 								case "help": {
-									statusMessage = "Commands: /usage /compact /help · Press Esc then /reload in main editor to reload";
+									statusMessage = "Commands: /usage /compact /model [name] /tools [±name] /thinking [level] /name [text] /context /session /commands /help · For /new /fork /tree /reload press Esc first";
 									editor.setText("");
 									return true;
 								}
@@ -217,7 +403,7 @@ This is mandatory because each normal user message costs a premium request, but 
 									return;
 								}
 								// Unrecognized command — show help instead of sending as text
-								statusMessage = `Unknown command: ${trimmed}. Available: /usage /compact /help. For pi commands (/reload, /new, etc.), press Ctrl+C first.`;
+								statusMessage = `Unknown command: ${trimmed}. Type /help for available commands. For pi commands (/new, /reload, etc.), press Esc first.`;
 								editor.setText("");
 								refresh();
 								return;
@@ -282,6 +468,10 @@ This is mandatory because each normal user message costs a premium request, but 
 								if (matchesKey(data, "escape")) {
 									done(null);
 									return;
+								}
+								// Debug: show raw bytes for troubleshooting
+								if (matchesKey(data, "shift+enter")) {
+									statusMessage = `DEBUG: shift+enter detected! bytes: ${[...data].map(c => '0x' + c.charCodeAt(0).toString(16)).join(' ')}`;
 								}
 								editor.handleInput(data);
 								refresh();
