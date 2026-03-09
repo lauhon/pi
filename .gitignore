@@ -1,0 +1,13 @@
+# Secrets
+auth.json
+
+# Sessions (large, ephemeral)
+sessions/
+
+# Package caches
+node_modules/
+npm/
+git/
+
+# OS
+.DS_Store
