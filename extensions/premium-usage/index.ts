@@ -19,12 +19,17 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { registerAskUserTool } from "./ask-user-tool.js";
+import { createAskUserComponent, type UIResult } from "./ask-user-ui.js";
+import type { CommandContext } from "./commands.js";
 
 export default function (pi: ExtensionAPI) {
 	// ── State ──────────────────────────────────────────────────────────
 
 	let requestCount = 0;
 	let savedCount = 0;
+	// Set by onCompactStart (in handleCompact) so the session_compact event handler
+	// knows to show the ask_user UI directly after compaction.
+	let pendingPostCompactQuestion: string | null = null;
 
 	// ── Helpers ────────────────────────────────────────────────────────
 
@@ -58,6 +63,12 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	// ── Event Handlers ─────────────────────────────────────────────────
+
+	// Debug: log the model being used on each turn
+	pi.on("turn_start", async (_event, ctx) => {
+		const model = ctx.model;
+		console.error(`[DEBUG turn_start] Model: ${model?.provider}/${model?.id}`);
+	});
 
 	// Restore counts when a session starts or switches
 	pi.on("session_start", async (_event, ctx) => {
@@ -123,6 +134,105 @@ This is mandatory because each normal user message costs a premium request, but 
 		};
 	});
 
+	// After compaction, show the ask_user UI directly and send the user's answer as
+	// the first message of the new session. This saves 1 premium request compared to
+	// the old approach (sendUserMessage → agent turn → agent calls ask_user → answer).
+	pi.on("session_compact", async (_event, ctx) => {
+		if (!pendingPostCompactQuestion || !ctx.hasUI) return;
+		const question = pendingPostCompactQuestion;
+		pendingPostCompactQuestion = null;
+
+		// Show the ask_user UI in a loop until we get a real answer or /end.
+		while (true) {
+			let answer: UIResult;
+			try {
+				answer = await ctx.ui.custom<UIResult>(
+					(tui: any, theme: any, _kb: any, done: (r: UIResult) => void) => {
+						const stats = { requestCount, savedCount };
+						const cmdCtx: CommandContext = {
+							pi,
+							ctx,
+							requestCount: stats.requestCount,
+							savedCount: stats.savedCount,
+						};
+						return createAskUserComponent(tui, theme, done, question, cmdCtx);
+					},
+				);
+			} catch {
+				// UI error — fall back to normal flow (agent will call ask_user)
+				pi.sendUserMessage(question);
+				return;
+			}
+
+			// Esc: loop back and re-show UI (no agent available to call ask_user)
+			if (answer === null) continue;
+
+			if (answer.type === "answer") {
+				savedCount++;
+				// Send the real answer as the first user message — 1 premium request
+				pi.sendUserMessage(answer.text);
+				return;
+			}
+
+			if (answer.type === "exit-command") {
+				if (answer.command === "end") {
+					// User ended the session — no message needed, let them type normally
+					return;
+				}
+				if (answer.command === "compact") {
+					// Compact again right after compacting — not useful, just notify
+					ctx.ui.notify("Already compacted. Send your message first.", "warning");
+					continue;
+				}
+				if (answer.command === "model-select") {
+					try {
+						const models = ctx.modelRegistry.getAvailable();
+						const labels = models.map((m: any) => `${m.provider}/${m.id}`);
+						const selected = await ctx.ui.select("Select model:", labels);
+						if (selected !== undefined) {
+							const model = models.find((m: any) => `${m.provider}/${m.id}` === selected);
+							if (model) {
+								const success = await pi.setModel(model);
+								ctx.ui.notify(
+									success ? `✓ Switched to ${model.provider}/${model.id}` : `✗ No API key for ${model.provider}/${model.id}`,
+									success ? "info" : "error",
+								);
+							}
+						}
+					} catch (err: any) {
+						ctx.ui.notify(`Model selection error: ${err.message}`, "error");
+					}
+					continue;
+				}
+				if (answer.command === "model-switch") {
+					try {
+						const models = ctx.modelRegistry.getAvailable();
+						const query = answer.args || "";
+						const match = models.find(
+							(m: any) => m.id.toLowerCase().includes(query.toLowerCase()) || m.name?.toLowerCase().includes(query.toLowerCase()),
+						);
+						if (match) {
+							const success = await pi.setModel(match);
+							ctx.ui.notify(
+								success ? `✓ Switched to ${match.provider}/${match.id}` : `✗ No API key for ${match.provider}/${match.id}`,
+								success ? "info" : "error",
+							);
+						} else {
+							const names = models.map((m: any) => `${m.provider}/${m.id}`).slice(0, 15).join(", ");
+							ctx.ui.notify(`✗ No model matching "${query}". Available: ${names}${models.length > 15 ? "..." : ""}`, "error");
+						}
+					} catch (err: any) {
+						ctx.ui.notify(`Model switch error: ${err.message}`, "error");
+					}
+					continue;
+				}
+				// Unknown exit command — re-show UI
+				ctx.ui.notify(`Unknown command: ${answer.command}`, "error");
+				continue;
+			}
+		}
+	});
+
 	// ── Tool Registration ──────────────────────────────────────────────
 
 	registerAskUserTool(
@@ -131,6 +241,9 @@ This is mandatory because each normal user message costs a premium request, but 
 		(ctx) => {
 			savedCount++;
 			updateStatus(ctx);
+		},
+		(question) => {
+			pendingPostCompactQuestion = question;
 		},
 	);
 

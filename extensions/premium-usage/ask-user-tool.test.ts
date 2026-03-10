@@ -142,6 +142,7 @@ describe("ask_user tool execute", () => {
 		// Simulates the real scenario: ctx.compact() internally calls agent.abort(),
 		// which fires the signal. The tool must break out instead of deadlocking.
 		const controller = new AbortController();
+		const onCompactStart = vi.fn();
 		const ctx = createMockCtx([
 			{ type: "exit-command", command: "compact" },
 			// No second result — tool should exit after signal fires, not loop
@@ -154,20 +155,28 @@ describe("ask_user tool execute", () => {
 			if (opts?.onComplete) setTimeout(() => opts.onComplete(), 50);
 		});
 
-		const result = await tool.execute("id", { question: "test?" }, controller.signal, null, ctx);
+		// Re-register tool with onCompactStart callback
+		const pi2 = createMockPi();
+		const onAnswer2 = vi.fn();
+		registerAskUserTool(pi2, () => ({ requestCount: 1, savedCount: 5 }), onAnswer2, onCompactStart);
+		const tool2 = pi2._getRegisteredTools()[0];
+
+		const result = await tool2.execute("id", { question: "test?" }, controller.signal, null, ctx);
 
 		// Tool exits cleanly with "compaction in progress" message
 		expect(result.content[0].text).toContain("Context compaction in progress");
 		expect(result.details.answer).toBeNull();
 		// UI was only shown once (no loop-back after abort)
 		expect(ctx.ui.custom).toHaveBeenCalledTimes(1);
-		expect(onAnswer).not.toHaveBeenCalled();
+		expect(onAnswer2).not.toHaveBeenCalled();
 
-		// After compaction completes (onComplete fires), a follow-up user message
-		// is sent to restart the agent so it calls ask_user again
-		await vi.waitFor(() => {
-			expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
-		});
+		// onCompactStart is called with the current question so index.ts can
+		// show the ask_user UI directly from the session_compact event handler
+		expect(onCompactStart).toHaveBeenCalledWith("test?");
+
+		// sendUserMessage is NOT called from ask-user-tool.ts anymore —
+		// it's called from the session_compact handler in index.ts instead
+		expect(pi2.sendUserMessage).not.toHaveBeenCalled();
 	});
 
 	it("handles model-select and re-shows editor", async () => {
