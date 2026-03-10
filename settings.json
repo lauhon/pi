@@ -1,7 +1,7 @@
 {
   "lastChangelogVersion": "0.57.1",
   "defaultProvider": "github-copilot",
-  "defaultModel": "claude-haiku-4.5",
+  "defaultModel": "claude-opus-4.6",
   "defaultThinkingLevel": "medium",
   "autoCompact": true,
   "steeringMode": "one-at-a-time",
