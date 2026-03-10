@@ -19,7 +19,7 @@ import type { CommandContext } from "./commands.js";
 // ── Types ──────────────────────────────────────────────────────────────
 
 interface ToolResult {
-	content: { type: string; text: string }[];
+	content: { type: "text"; text: string }[];
 	details: { question: string; answer: string | null };
 }
 
@@ -144,7 +144,7 @@ export function registerAskUserTool(
 // ── Exit Command Handlers ──────────────────────────────────────────────
 
 interface ExitCommandResult {
-	content: { type: string; text: string }[];
+	content: { type: "text"; text: string }[];
 	answerText: string | null;
 }
 
