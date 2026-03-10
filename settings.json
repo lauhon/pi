@@ -1,9 +1,9 @@
 {
   "lastChangelogVersion": "0.57.1",
   "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-4.6",
+  "defaultModel": "claude-sonnet-4",
   "defaultThinkingLevel": "medium",
-  "autoCompact": true,
+  "autoCompact": false,
   "steeringMode": "one-at-a-time",
   "followUpMode": "one-at-a-time"
 }

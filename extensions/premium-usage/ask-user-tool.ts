@@ -8,6 +8,14 @@
  * 4. User runs exit command → handle here, then loop back to step 1
  * 5. User presses Esc → return, agent will call ask_user again
  * 6. User runs /end → return, agent stops calling ask_user
+ *
+ * Compact deadlock prevention:
+ * /compact triggers ctx.compact() → session.compact() → agent.abort() → waitForIdle().
+ * waitForIdle() blocks until ask_user.execute() returns, creating a circular dependency.
+ * Fix: handleCompact races the compact promise against the agent abort signal. When
+ * abort fires, we break out immediately, the tool returns a result, waitForIdle()
+ * unblocks, and compaction can complete. The execute loop checks _signal.aborted to
+ * avoid looping back into the UI while the agent is shutting down.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -113,9 +121,22 @@ export function registerAskUserTool(
 
 				// ── Exit commands (handled outside the custom UI) ───────
 				if (answer.type === "exit-command") {
-					const result = await handleExitCommand(answer.command, answer.args, pi, ctx);
+					const result = await handleExitCommand(answer.command, answer.args, pi, ctx, _signal);
 					if (result) return { ...result, details: { question: params.question, answer: result.answerText } };
-					// null means "loop back and re-show the editor"
+					// null means "loop back and re-show the editor" — BUT first check if the
+					// agent was aborted (e.g. by compact calling session.abort()). If so, exit
+					// cleanly so waitForIdle() can unblock and compaction can proceed.
+					if (_signal?.aborted) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "[Context compaction in progress. Call ask_user again when ready to continue.]",
+								},
+							],
+							details: { question: params.question, answer: null },
+						};
+					}
 					continue;
 				}
 			}
@@ -157,6 +178,7 @@ async function handleExitCommand(
 	args: string | undefined,
 	pi: ExtensionAPI,
 	ctx: any,
+	signal?: AbortSignal | null,
 ): Promise<ExitCommandResult | null> {
 	switch (command) {
 		case "end":
@@ -171,7 +193,7 @@ async function handleExitCommand(
 			};
 
 		case "compact":
-			return handleCompact(args, ctx);
+			return handleCompact(args, signal, ctx);
 
 		case "model-select":
 			return handleModelSelect(pi, ctx);
@@ -185,20 +207,44 @@ async function handleExitCommand(
 	}
 }
 
-async function handleCompact(args: string | undefined, ctx: any): Promise<ExitCommandResult | null> {
+async function handleCompact(args: string | undefined, signal: AbortSignal | null | undefined, ctx: any): Promise<ExitCommandResult | null> {
 	try {
-		const result = await new Promise<string>((resolve, reject) => {
+		// Race the compaction against the abort signal.
+		//
+		// Why: ctx.compact() → session.compact() → abort() → agent.waitForIdle().
+		// waitForIdle() blocks until ask_user.execute() returns, but execute() is
+		// awaiting this very promise → deadlock. The fix: when the abort signal fires
+		// (caused by compact calling agent.abort()), we break out immediately so
+		// execute() can return a tool result, unblocking waitForIdle(), which lets
+		// compaction proceed.
+		const compactPromise = new Promise<string>((resolve, reject) => {
 			ctx.compact({
 				customInstructions: args || undefined,
 				onComplete: () => resolve("✓ Compaction complete"),
 				onError: (err: Error) => reject(err),
 			});
 		});
+
+		const abortPromise = new Promise<never>((_, reject) => {
+			if (signal?.aborted) {
+				reject(new Error("aborted"));
+				return;
+			}
+			signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+		});
+
+		const result = await Promise.race([compactPromise, abortPromise]);
+		// Only reached if compaction finishes before abort fires (e.g. in tests).
 		ctx.ui.notify(result, "info");
 	} catch (err: any) {
-		ctx.ui.notify(`✗ Compaction failed: ${err.message}`, "error");
+		if (err.message !== "aborted") {
+			ctx.ui.notify(`✗ Compaction failed: ${err.message}`, "error");
+		}
+		// "aborted": compact called agent.abort() → signal fired → we broke out.
+		// execute() will see _signal.aborted === true and return cleanly, allowing
+		// waitForIdle() to resolve so compaction can complete.
 	}
-	return null; // re-show editor
+	return null; // re-show editor (or exit if signal aborted — checked by caller)
 }
 
 async function handleModelSelect(pi: ExtensionAPI, ctx: any): Promise<ExitCommandResult | null> {

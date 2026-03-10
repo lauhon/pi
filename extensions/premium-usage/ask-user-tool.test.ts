@@ -126,7 +126,7 @@ describe("ask_user tool execute", () => {
 		expect(result.details.answer).toBe("/end");
 	});
 
-	it("handles compact command and re-shows editor", async () => {
+	it("handles compact command and re-shows editor (no signal)", async () => {
 		const ctx = createMockCtx([
 			{ type: "exit-command", command: "compact" },
 			{ type: "answer", text: "after compact" },
@@ -135,6 +135,32 @@ describe("ask_user tool execute", () => {
 		// Should have looped: compact → re-show → answer
 		expect(ctx.ui.custom).toHaveBeenCalledTimes(2);
 		expect(result.content[0].text).toBe("after compact");
+	});
+
+	it("compact exits tool cleanly when agent signal aborts (deadlock prevention)", async () => {
+		// Simulates the real scenario: ctx.compact() internally calls agent.abort(),
+		// which fires the signal. The tool must break out instead of deadlocking.
+		const controller = new AbortController();
+		const ctx = createMockCtx([
+			{ type: "exit-command", command: "compact" },
+			// No second result — tool should exit after signal fires, not loop
+		]);
+		// Override compact: simulate agent abort firing (as happens in real session.compact())
+		ctx.compact = vi.fn((opts?: any) => {
+			// Fire abort synchronously (as agent.abort() would do)
+			controller.abort();
+			// compact "eventually" finishes after abort (in real code, after waitForIdle resolves)
+			if (opts?.onComplete) setTimeout(() => opts.onComplete(), 50);
+		});
+
+		const result = await tool.execute("id", { question: "test?" }, controller.signal, null, ctx);
+
+		// Tool exits cleanly with "compaction in progress" message
+		expect(result.content[0].text).toContain("Context compaction in progress");
+		expect(result.details.answer).toBeNull();
+		// UI was only shown once (no loop-back after abort)
+		expect(ctx.ui.custom).toHaveBeenCalledTimes(1);
+		expect(onAnswer).not.toHaveBeenCalled();
 	});
 
 	it("handles model-select and re-shows editor", async () => {
