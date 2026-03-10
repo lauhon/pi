@@ -193,7 +193,7 @@ async function handleExitCommand(
 			};
 
 		case "compact":
-			return handleCompact(args, signal, ctx);
+			return handleCompact(args, signal, ctx, pi);
 
 		case "model-select":
 			return handleModelSelect(pi, ctx);
@@ -207,7 +207,7 @@ async function handleExitCommand(
 	}
 }
 
-async function handleCompact(args: string | undefined, signal: AbortSignal | null | undefined, ctx: any): Promise<ExitCommandResult | null> {
+async function handleCompact(args: string | undefined, signal: AbortSignal | null | undefined, ctx: any, pi: ExtensionAPI): Promise<ExitCommandResult | null> {
 	try {
 		// Race the compaction against the abort signal.
 		//
@@ -220,7 +220,15 @@ async function handleCompact(args: string | undefined, signal: AbortSignal | nul
 		const compactPromise = new Promise<string>((resolve, reject) => {
 			ctx.compact({
 				customInstructions: args || undefined,
-				onComplete: () => resolve("✓ Compaction complete"),
+				onComplete: () => {
+					// Compaction finished. The old agent turn was aborted, so we need
+					// to send a new user message to restart the agent. The agent will
+					// then call ask_user again, restoring the interactive loop.
+					pi.sendUserMessage(
+						"The conversation history before this point was compacted into a summary (shown above). Continue where we left off — call ask_user to get the next instruction from the user.",
+					);
+					resolve("✓ Compaction complete");
+				},
 				onError: (err: Error) => reject(err),
 			});
 		});
@@ -243,6 +251,7 @@ async function handleCompact(args: string | undefined, signal: AbortSignal | nul
 		// "aborted": compact called agent.abort() → signal fired → we broke out.
 		// execute() will see _signal.aborted === true and return cleanly, allowing
 		// waitForIdle() to resolve so compaction can complete.
+		// onComplete will fire later and send a user message to restart the agent.
 	}
 	return null; // re-show editor (or exit if signal aborted — checked by caller)
 }

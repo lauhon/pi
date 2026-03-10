@@ -23,6 +23,7 @@ function createMockPi() {
 		setSessionName: vi.fn(),
 		getCommands: vi.fn(() => []),
 		setModel: vi.fn(async () => true),
+		sendUserMessage: vi.fn(),
 		_getRegisteredTools: () => tools,
 	} as any;
 }
@@ -161,6 +162,12 @@ describe("ask_user tool execute", () => {
 		// UI was only shown once (no loop-back after abort)
 		expect(ctx.ui.custom).toHaveBeenCalledTimes(1);
 		expect(onAnswer).not.toHaveBeenCalled();
+
+		// After compaction completes (onComplete fires), a follow-up user message
+		// is sent to restart the agent so it calls ask_user again
+		await vi.waitFor(() => {
+			expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
+		});
 	});
 
 	it("handles model-select and re-shows editor", async () => {
