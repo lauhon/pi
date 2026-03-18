@@ -18,6 +18,7 @@
 - Edge cases must be considered
 - Tests must cover the change
 - No regressions in existing tests
+- Don't add comments to explain "what" the code does — only "why" if it's not obvious
 
 ## Communication Style
 
@@ -25,6 +26,20 @@
 - When a task is done, summarize in 3-5 bullets and ask what's next
 - If you need clarification, ask directly — don't guess
 - When uncertain between options, present them briefly and let me choose
+
+## Terminal Commands — Use cmux
+
+**NEVER run non-terminating commands directly** (dev servers, watchers, docker, tail -f, etc.) — they block the agent.
+
+Use **cmux** to run them in a separate split:
+
+```bash
+cmux new-split right                          # create a split
+cmux tree --json                              # find the surface ref
+cmux send --surface surface:N "pnpm dev\n"    # run command there
+```
+
+For the full cmux API (notifications, sidebar status, keys, etc.), you can load the `cmux` skill if you need to.
 
 ## Git Operations
 
@@ -35,6 +50,7 @@
 ## Context Reset
 
 When a task is completely done:
+
 1. Summarize what was accomplished (3-5 bullets)
 2. Treat subsequent input as a new task
 3. Ask: "What's next?"
