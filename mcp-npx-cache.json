@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "entries": {
+    "[\"npx\",\"shadcn@latest\",\"mcp\"]": {
+      "resolvedBin": "/Users/laurenz/.npm/_npx/d66c5096c7023bfb/node_modules/shadcn/dist/index.js",
+      "resolvedAt": 1773825342897,
+      "packageVersion": "4.0.5",
+      "isJs": true
+    },
+    "[\"npx\",\"-y\",\"shadcn-studio-mcp\",\"API_KEY=312CEE3A-8964-40B4-A7CF-7EA3CBD0F589\",\"EMAIL=mustafa@alic.me\"]": {
+      "resolvedBin": "/Users/laurenz/.npm/_npx/7432beee66fb6985/node_modules/shadcn-studio-mcp/build/index.js",
+      "resolvedAt": 1773825342899,
+      "packageVersion": "1.0.7",
+      "isJs": true
+    }
+  }
+}

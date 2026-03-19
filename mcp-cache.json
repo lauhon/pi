@@ -1,0 +1,3047 @@
+{
+  "version": 1,
+  "servers": {
+    "shadcn": {
+      "configHash": "c62cf600ce2fcdfb43f215fc084fdd8ded3bceeadd493cf470d522cd651602ab",
+      "tools": [
+        {
+          "name": "get_project_registries",
+          "description": "Get configured registry names from components.json - Returns error if no components.json exists (use init_project to create one)",
+          "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "list_items_in_registries",
+          "description": "List items from registries (requires components.json - use init_project if missing)",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "registries": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Array of registry names to search (e.g., ['@shadcn', '@acme'])"
+              },
+              "limit": {
+                "type": "number",
+                "description": "Maximum number of items to return"
+              },
+              "offset": {
+                "type": "number",
+                "description": "Number of items to skip for pagination"
+              }
+            },
+            "required": [
+              "registries"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "search_items_in_registries",
+          "description": "Search for components in registries using fuzzy matching (requires components.json). After finding an item, use get_item_examples_from_registries to see usage examples.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "registries": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Array of registry names to search (e.g., ['@shadcn', '@acme'])"
+              },
+              "query": {
+                "type": "string",
+                "description": "Search query string for fuzzy matching against item names and descriptions"
+              },
+              "limit": {
+                "type": "number",
+                "description": "Maximum number of items to return"
+              },
+              "offset": {
+                "type": "number",
+                "description": "Number of items to skip for pagination"
+              }
+            },
+            "required": [
+              "registries",
+              "query"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "view_items_in_registries",
+          "description": "View detailed information about specific registry items including the name, description, type and files content. For usage examples, use get_item_examples_from_registries instead.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Array of item names with registry prefix (e.g., ['@shadcn/button', '@shadcn/card'])"
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "get_item_examples_from_registries",
+          "description": "Find usage examples and demos with their complete code. Search for patterns like 'accordion-demo', 'button example', 'card-demo', etc. Returns full implementation code with dependencies.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "registries": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Array of registry names to search (e.g., ['@shadcn', '@acme'])"
+              },
+              "query": {
+                "type": "string",
+                "description": "Search query for examples (e.g., 'accordion-demo', 'button demo', 'card example', 'tooltip-demo', 'example-booking-form', 'example-hero'). Common patterns: '{item-name}-demo', '{item-name} example', 'example {item-name}'"
+              }
+            },
+            "required": [
+              "registries",
+              "query"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "get_add_command_for_items",
+          "description": "Get the shadcn CLI add command for specific items in a registry. This is useful for adding one or more components to your project.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Array of items to get the add command for prefixed with the registry name (e.g., ['@shadcn/button', '@shadcn/card'])"
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "get_audit_checklist",
+          "description": "After creating new components or generating new code files, use this tool for a quick checklist to verify that everything is working as expected. Make sure to run the tool after all required steps have been completed.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        }
+      ],
+      "resources": [],
+      "cachedAt": 1773825812737
+    },
+    "shadcn-studio-mcp": {
+      "configHash": "9f03d0c52e55c3ce4aa57590d702631c98d715a4293e4825042e2d55a7d2909d",
+      "tools": [
+        {
+          "name": "get-create-instructions",
+          "description": "Get instructions for creating Shadcn blocks using existing blocks. This tool provides instructions for creating new Shadcn blocks using existing blocks. Use this tool when the user requests to generate a new component. mentions /create-shadcn or /cui. Strictly follow the steps one by one to ensure successful code generation.Retrieves Instructions for IDE agent to follow for creating/generating/updating shadcn blocks.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "get-inspire-instructions",
+          "description": "Get instructions for working with Shadcn blocks. This tool provides instructions for creating new Shadcn blocks by taking the inspiration from existing Shadcn blocks. Use this tool when the user requests to generate a new component by inspirations. mentions /inspire-shadcn or /iui. The instructions will guide you to use IUI-specific tools: get-blocks-metadata, get-inspiration-block-content.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "get-refine-instructions",
+          "description": "Get instructions for refining Shadcn blocks. This tool provides instructions for refining existing Shadcn blocks. Use this tool when the user requests to refine an existing component. mentions /refine-shadcn or /rui.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "get-ftc-instructions",
+          "description": "Get instructions for converting Figma designs to code using Shadcn blocks. This tool provides step-by-step instructions for the Figma to Code workflow. Use this tool when the user requests to convert Figma design to code. mentions /figma-to-code or /ftc. The workflow involves: 1) Using Figma MCP to list Pro/Free Blocks component instances, 2) Using our MCP to install matching blocks, 3) Building the page structure, 4) Replacing content from Figma.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "get-blocks-metadata",
+          "description": "FOR CREATE_UI (/cui) AND INSPIRATION UI (/iui) : Retrieve metadata of all available blocks. Returns list of available blocks with names, descriptions, and categories.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "parse-figma-blocks",
+          "description": "FOR FIGMA-TO-CODE WORKFLOW (/ftc): Parse Figma component instance names and convert them to proper Shadcn Studio block format for installation. Converts names like 'Pro Blocks / Marketing-ui / features-section / Feature 01' to '@ss-blocks/feature-01' or 'Free Blocks / Marketing-ui / features-section / Feature 01' to '@ss-blocks/feature-01' Use this tool after getting component list from Figma MCP. DO NOT use for create-ui, inspire-ui, or refine-ui workflows.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "figmaComponents": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Array of Figma component instance names from Figma MCP (e.g., ['Pro Blocks / Marketing-ui / features-section / Feature 01', 'Pro Blocks / Marketing-ui / hero-section / Hero 03'])"
+              }
+            },
+            "required": [
+              "figmaComponents"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "get-block-meta-content",
+          "description": "FOR CREATE-UI WORKFLOW (/cui): Fetch detailed information about blocks in a specific category for installation. Use this to explore and select the most suitable block for installation. DO NOT use for inspire-ui workflow.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "endpoint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "collect_selected_blocks",
+          "description": "FOR CREATE-UI WORKFLOW (/cui) AND FIGMA-TO-CODE WORKFLOW (/ftc): Collect and store selected blocks for batch installation command generation. Use this tool after selecting a specific block from get-block-meta-content (for /cui) or after parsing Figma components with parse-figma-blocks (for /ftc). This tool accumulates blocks until all required blocks are selected, then allows final command generation. DO NOT use for inspire-ui workflow.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "blockName": {
+                "type": "string",
+                "description": "The name of the selected block (e.g., 'hero-section-01', 'navbar-component-13', 'feature-01')"
+              },
+              "blockType": {
+                "type": "string",
+                "description": "The type/category of the block (e.g., 'hero', 'navbar', 'pricing', 'footer', 'features-section')"
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "add",
+                  "list",
+                  "clear"
+                ],
+                "description": "Action to perform: 'add' to add a block, 'list' to show collected blocks, 'clear' to reset the collection"
+              }
+            },
+            "required": [
+              "blockName",
+              "blockType",
+              "action"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "get_add_command_for_items",
+          "description": "FOR CREATE-UI WORKFLOW (/cui) AND FIGMA-TO-CODE WORKFLOW (/ftc): Generate the shadcn CLI add command for all collected blocks. This returns the exact command that should be executed to install the components. DO NOT use for inspire-ui workflow.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "useCollectedBlocks": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether to use the collected blocks (default: true) or provide custom items"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Array of items to get the add command for (only used if useCollectedBlocks is false)"
+              }
+            },
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "get-inspiration-block-content",
+          "description": "FOR INSPIRE-UI WORKFLOW (/iui): Fetch the content of an inspiration block from a given URL. Use this tool to retrieve the code block content for inspiration and analysis purposes only. DO NOT use for create-ui or refine-ui workflows.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "endpoint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "get-component-meta-content",
+          "description": "FOR REFINE WORKFLOW ONLY: Search and find the most appropriate component from user query. This tool searches through available components metadata to identify which component is most suitable for the user's requirements. Use this tool first to discover suitable components before using get-component-content. This tool is ONLY for the refine workflow (/rui). DO NOT use this for create-ui workflow - use get-block-meta-content instead.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "endpoint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "get-component-content",
+          "description": "FOR REFINE WORKFLOW ONLY: If a component was found from get-component-meta-content tool, this tool fetches the component content and generates the shadcn CLI installation command for that component. If no suitable component is found, this tool will help create/update components according to the user query. This returns the exact command that should be executed to install the components. This tool is ONLY for the refine workflow (/rui). DO NOT use this for create-ui workflow - use get-block-content instead.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "endpoint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "endpoint"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "collect_selected_components",
+          "description": "FOR REFINE-UI WORKFLOW (/rui): Collect and store selected components for batch installation command generation. Use this tool after selecting a specific component from get-component-meta-content. This tool accumulates components until all required components are selected, then allows final command generation. DO NOT use for create-ui or inspire-ui workflows.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "componentName": {
+                "type": "string",
+                "description": "The name of the selected component (e.g., 'button-44', 'alert-12', 'card-05')"
+              },
+              "componentType": {
+                "type": "string",
+                "description": "The type/category of the component (e.g., 'button', 'alert', 'card', 'input')"
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "add",
+                  "list",
+                  "clear"
+                ],
+                "description": "Action to perform: 'add' to add a component, 'list' to show collected components, 'clear' to reset the collection"
+              }
+            },
+            "required": [
+              "componentName",
+              "componentType",
+              "action"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "get_add_command_for_components",
+          "description": "FOR REFINE-UI WORKFLOW (/rui): Generate the shadcn CLI add command for all collected components. This returns the exact command that should be executed to install the components. DO NOT use for create-ui or inspire-ui workflows.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "useCollectedComponents": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether to use the collected components (default: true) or provide custom items"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Array of items to get the add command for (only used if useCollectedComponents is false)"
+              }
+            },
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "install-theme",
+          "description": "FOR REFINE WORKFLOW ONLY (/rui): Install a theme from Shadcn Studio using the appropriate package manager. Supports both public themes (e.g., 'modern-minimal') and private user themes (UUID format). Automatically detects the project's package manager (npm, pnpm, yarn, bun) and generates the correct installation command. DO NOT use this for create-ui (/cui) or inspire-ui (/iui) workflows.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "themeName": {
+                "type": "string",
+                "description": "The name or UUID of the theme to install (e.g., 'modern-minimal' for public themes or UUID for private themes)"
+              }
+            },
+            "required": [
+              "themeName"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        }
+      ],
+      "resources": [],
+      "cachedAt": 1773825812732
+    },
+    "motion": {
+      "configHash": "0d975a15a95797d71766dfc62c3629ca8e08e61ce2a3ba78be7d1fe8bdaca976",
+      "tools": [
+        {
+          "name": "generate-css-spring",
+          "description": "Generates a CSS spring animation using the linear() easing function.\n\nThe spring is defined by two parameters:\n- Bounce: A number between 0 and 1, where 0 is no bounce and 1 is max bounce.\n- Duration: The perceptual duration of the spring, defined in seconds.\n\nIt uses perceptual duration, which means the amount of time it takes for the animation\nto \"appear\" to reach its target. This is different than the returned calculated duration,\nwhich is the value that should be applied.\n\nWhen co-ordinating this spring with other animations, use the submitted duration,\nfor example if someone has asked for a spring that takes 0.2 seconds, and this\nreturns a spring that takes 0.3 seconds, you should use the 0.2 seconds for your\n*other* animations.\n\n```css\ntransition: opacity 0.2s linear, transform <output>\n```\n\nIt returns the \"<duration> <easing-function>\" part of a CSS transition, meaning it should\nbe prepended with \"transition: <value-name> \" to be used in a CSS stylesheet.\n\nQuick or snappy durations are around 0.2 seconds, a normal animation between 0.3 and 0.4 seconds, while slow or sluggish durations\nare around 1 second.\n\nNote: Only use when generating CSS easing functions. Motion can import spring\ndirectly from \"motion\".\n",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "bounce": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.2,
+                "description": "Bounce, defined as a number between 0 and 1."
+              },
+              "duration": {
+                "type": "number",
+                "default": 0.4,
+                "description": "Perceptual duration of the spring, defined in seconds."
+              }
+            },
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "generate-css-bounce-easing",
+          "description": "Generates a CSS bouncing animation using the linear() easing function.\n\nBounce easing works slightly differently than other animations in that\nit looks better with a slightly longer duration, like 1 second.\n\nLonger durations will look light gravity is lower or the UI is lighter, whereas \nshorter durations will look like gravity and the UI is heavier.\n",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "duration": {
+                "type": "number",
+                "default": 1,
+                "description": "Duration of the animation, in seconds."
+              }
+            },
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "visualise-spring",
+          "description": "Generates a visualisation of a Motion spring animation.\n\nThe springs can be configured either:\n- Time-based with duration and bounce parameters\n- Physics-based with stiffness, damping, and mass parameters\n\nThese options are mutually exclusive so never set both 'duration' and 'stiffness' or\n'damping' and 'mass' for example.\n\nFurther, the time-based animations can either be configured to use the visual duration,\nwhere the spring appears to hit its target at the duration, or exact duration, where\nthe spring fully settles at the duration. \n",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "time",
+                  "physics"
+                ],
+                "default": "time",
+                "description": "Type of spring - 'time' for duration/bounce or 'physics' for stiffness/damping/mass"
+              },
+              "duration": {
+                "type": "number",
+                "default": 0.5,
+                "description": "Duration of the animation, in seconds (for time-based springs)"
+              },
+              "bounce": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.3,
+                "description": "Bounce amount from 0 (no bounce) to 1 (max bounce) - for time-based springs"
+              },
+              "stiffness": {
+                "type": "number",
+                "default": 1000,
+                "description": "Spring stiffness (for physics-based springs)"
+              },
+              "damping": {
+                "type": "number",
+                "default": 100,
+                "description": "Spring damping (for physics-based springs)"
+              },
+              "mass": {
+                "type": "number",
+                "default": 1,
+                "description": "Spring mass (for physics-based springs)"
+              },
+              "isVisualDuration": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether to use visual duration calculation for time-based springs. Set to false if you want the 'exact' time a spring will take, rather than its perceptual time."
+              },
+              "width": {
+                "type": "number",
+                "default": 500,
+                "description": "Width of the visualization"
+              },
+              "height": {
+                "type": "number",
+                "default": 300,
+                "description": "Height of the visualization"
+              }
+            },
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "visualise-cubic-bezier",
+          "description": "Generates a visualisation of a cubic-bezier easing curve using SVG path data.\nThe curve is defined by two control points (x1, y1, x2, y2) where the start point is (0,0) and end point is (1,1).\n",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "x1": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.25,
+                "description": "X coordinate of the first control point"
+              },
+              "y1": {
+                "type": "number",
+                "default": 0.1,
+                "description": "Y coordinate of the first control point"
+              },
+              "x2": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.25,
+                "description": "X coordinate of the second control point"
+              },
+              "y2": {
+                "type": "number",
+                "default": 1,
+                "description": "Y coordinate of the second control point"
+              },
+              "width": {
+                "type": "number",
+                "default": 500,
+                "description": "Width of the visualization"
+              },
+              "height": {
+                "type": "number",
+                "default": 500,
+                "description": "Height of the visualization"
+              }
+            },
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "search-motion-codex",
+          "description": "REQUIRED STEP: Before implementing any component with animations, drag interactions, sliders, reveals,\ncomparisons, or user gestures, search Motion Codex for the official pattern and API documentation.\nUse the Codex result as the foundation for your implementation. Returns relevant documentation (for API\nlookups like useSpring, animate, etc.) and code examples. Also returns user-defined transitions.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "type": "string",
+                "enum": [
+                  "js",
+                  "react",
+                  "vue"
+                ],
+                "description": "The platform/language of the user's current file."
+              },
+              "searchTerm": {
+                "type": "string",
+                "description": "The UI component or animation type to find (e.g. 'accordion', 'spring')"
+              }
+            },
+            "required": [
+              "platform",
+              "searchTerm"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        }
+      ],
+      "resources": [
+        {
+          "uri": "motion://docs/vue/motion-directive",
+          "name": "Vue: Motion directive",
+          "description": "Animate UIs in Motion for Vue with motion components. Animate CSS, transforms, & SVGs. Use variants for orchestration, gestures, and keyframes."
+        },
+        {
+          "uri": "motion://docs/vue/vue",
+          "name": "Vue: Get started with Motion for Vue",
+          "description": "Learn Motion for Vue animation library: Install, animate HTML and SVG elements with spring animations, staggering effects. Complete guide with examples."
+        },
+        {
+          "uri": "motion://docs/vue/animation",
+          "name": "Vue: Vue animation",
+          "description": "Animate UIs in Motion for Vue with motion components. Animate CSS, transforms, & SVGs. Use variants for orchestration, gestures, and keyframes."
+        },
+        {
+          "uri": "motion://docs/vue/gestures",
+          "name": "Vue: Gesture animation",
+          "description": "Power your UI with Motion for Vue's gestures: hover, tap, pan, drag & inView. Use while- props for animations & event listeners for interactive experiences."
+        },
+        {
+          "uri": "motion://docs/vue/layout-animations",
+          "name": "Vue: Layout animation",
+          "description": "Animate layouts effortlessly in Vue with Motion's layout prop. Smoothly transition CSS, even between different elements using layoutId. Performant & flexible."
+        },
+        {
+          "uri": "motion://docs/vue/scroll-animations",
+          "name": "Vue: Scroll animation",
+          "description": "Create scroll-triggered or scroll-linked animations with Motion for Vue. Use whileInView for viewport triggers and useScroll to link animations to scroll progress."
+        },
+        {
+          "uri": "motion://docs/vue/transitions",
+          "name": "Vue: Transition options",
+          "description": "Define animation behavior with Motion for Vue's transition prop. Choose time-based or physics-based animations. Customize duration, easing, delay, and repeat."
+        },
+        {
+          "uri": "motion://docs/vue/motion-component",
+          "name": "Vue: Motion component",
+          "description": "Drive animations in Motion for Vue with motion components. Supercharge HTML/SVG for 120fps animations & gestures. High-performance, SSR-compatible & customizable."
+        },
+        {
+          "uri": "motion://docs/vue/animate-presence",
+          "name": "Vue: AnimatePresence",
+          "description": "Enable effortless exit animations in Vue with AnimatePresence. It animates components on removal via the exit prop."
+        },
+        {
+          "uri": "motion://docs/vue/layout-group",
+          "name": "Vue: LayoutGroup",
+          "description": "Coordinate Vue layout animations between related Motion components with LayoutGroup. Group elements to share state and enable seamless transitions, even if not rendered together. Namespace layoutId for complex UIs."
+        },
+        {
+          "uri": "motion://docs/vue/lazymotion",
+          "name": "Vue: LazyMotion",
+          "description": "Reduce your initial bundle size with LazyMotion in Motion for Vue. Load animation features synchronously or asynchronously, shrinking bundles to as low as 6kb."
+        },
+        {
+          "uri": "motion://docs/vue/motion-config",
+          "name": "Vue: MotionConfig",
+          "description": "Configure all child motion components in Vue with MotionConfig. Set global transitions, manage reducedMotion preferences, and ensure CSP nonce compliance easily."
+        },
+        {
+          "uri": "motion://docs/vue/reorder",
+          "name": "Vue: Reorder",
+          "description": "Easily create drag-to-reorder lists with Motion for Vue's Reorder components. Use Reorder.Group and Reorder.Item to manage list order, with automatic layout and exit animations. Lightweight and simple."
+        },
+        {
+          "uri": "motion://docs/vue/motion-value",
+          "name": "Vue: Motion values",
+          "description": "Power Vue animations with Motion values. Track state/velocity, sync components, & update styles without re-renders. Compose with useTransform/useSpring."
+        },
+        {
+          "uri": "motion://docs/vue/use-motion-template",
+          "name": "Vue: useMotionTemplate",
+          "description": "Combine motion values into dynamic strings with Motion for Vue's useMotionTemplate. Create auto-updating, interpolated values for responsive animations."
+        },
+        {
+          "uri": "motion://docs/vue/use-motion-value-event",
+          "name": "Vue: useMotionValueEvent",
+          "description": "Manage motion value event listeners in Vue with useMotionValueEvent. Auto-cleans events like change & animationComplete for dynamic UIs."
+        },
+        {
+          "uri": "motion://docs/vue/use-scroll",
+          "name": "Vue: useScroll",
+          "description": "Create Vue scroll-linked animations like progress bars & parallax with Motion for Vue's useScroll hook. Track scroll, element position & use motion values."
+        },
+        {
+          "uri": "motion://docs/vue/use-spring",
+          "name": "Vue: useSpring",
+          "description": "Discover Motion for Vue's useSpring hook. Create smooth spring animations for motion values. Learn to animate with .set(), track values & customize transitions."
+        },
+        {
+          "uri": "motion://docs/vue/use-time",
+          "name": "Vue: useTime",
+          "description": "Explore Motion for Vue's useTime hook. It returns elapsed time in ms every frame. Learn how it creates perpetual animations & composes with other motion values."
+        },
+        {
+          "uri": "motion://docs/vue/use-transform",
+          "name": "Vue: useTransform",
+          "description": "Discover Motion for Vue's useTransform hook. Create new motion values by transforming others. Learn to map ranges & use clamp, ease, mixer for advanced control."
+        },
+        {
+          "uri": "motion://docs/vue/use-velocity",
+          "name": "Vue: useVelocity",
+          "description": "Discover Motion for Vue's useVelocity hook. It tracks a motion value's velocity, letting you monitor the rate of change for any animatable value easily."
+        },
+        {
+          "uri": "motion://docs/vue/use-animate",
+          "name": "Vue: useAnimate",
+          "description": "Discover Motion for Vue's useAnimate hook for component-scoped animations. Use its animate function for manual control, scoped selectors & auto cleanup."
+        },
+        {
+          "uri": "motion://docs/vue/use-animation-frame",
+          "name": "Vue: useAnimationFrame",
+          "description": "Use Motion for Vue's useAnimationFrame hook to run callbacks on every frame. Leverage time & delta args for precise animation control & custom frame logic."
+        },
+        {
+          "uri": "motion://docs/vue/use-drag-controls",
+          "name": "Vue: useDragControls",
+          "description": "Master Motion for Vue's useDragControls hook. Manually start drag gestures, add touch support, snap to cursor & customize drag interactions for your components."
+        },
+        {
+          "uri": "motion://docs/vue/use-in-view",
+          "name": "Vue: useInView",
+          "description": "Use Motion for Vue's tiny useInView hook (0.6kb) to detect when elements enter the viewport. Track visibility, trigger effects & customize detection easily."
+        },
+        {
+          "uri": "motion://docs/vue/use-reduced-motion",
+          "name": "Vue: useReducedMotion",
+          "description": "Learn to use Motion for Vue's useReducedMotion hook to detect reduced motion settings. Create accessible UIs by adapting animations and motion features."
+        },
+        {
+          "uri": "motion://docs/vue/radix",
+          "name": "Vue: Integrate Motion with Radix",
+          "description": "Integrate Motion with Radix Vue for stunning animations. Learn to animate Radix primitives, use AnimatePresence for smooth exits, & animate Tooltip, Toast & more."
+        },
+        {
+          "uri": "motion://docs/react/react",
+          "name": "React: Get started with Motion for React",
+          "description": "Learn Motion for React animation library: Install, animate HTML and SVG elements with spring animations, staggering effects. Complete guide with examples."
+        },
+        {
+          "uri": "motion://docs/react/animation",
+          "name": "React: React animation",
+          "description": "Learn how to create React animations with Motion. Animate CSS, transforms, & SVGs. Use variants for orchestration, gestures, and keyframes."
+        },
+        {
+          "uri": "motion://docs/react/layout-animations",
+          "name": "React: Layout animation",
+          "description": "Animate layout changes in React with Motion. Auto layout transitions, FLIP, shared-element animations via layoutId, and performance tips (with code)."
+        },
+        {
+          "uri": "motion://docs/react/scroll-animations",
+          "name": "React: Scroll animation",
+          "description": "Create scroll-triggered or scroll-linked animations with Motion for React. Use whileInView for viewport triggers and useScroll to link animations to scroll progress."
+        },
+        {
+          "uri": "motion://docs/react/svg-animation",
+          "name": "React: SVG animation",
+          "description": "SVG animations in React with Motion. Line drawing via pathLength, transforms, attribute animation (attrX/attrY), scroll-linked animations, morphing and more."
+        },
+        {
+          "uri": "motion://docs/react/transitions",
+          "name": "React: Transitions",
+          "description": "Define animation behavior with Motion for React's transition prop. Choose time-based or physics-based animations. Customize duration, easing, delay, and repeat."
+        },
+        {
+          "uri": "motion://docs/react/gestures",
+          "name": "React: Gesture animation",
+          "description": "Power your UI with Motion for React's gestures: hover, tap, pan, drag & inView. Use while- props for animations & event listeners for interactive experiences."
+        },
+        {
+          "uri": "motion://docs/react/hover-animation",
+          "name": "React: Hover animation",
+          "description": "A complete guide to creating hover animations and effects in React with Motion. Go beyond CSS with the whileHover prop and the hover() function for advanced, cross-platform interactions."
+        },
+        {
+          "uri": "motion://docs/react/drag",
+          "name": "React: Drag animation",
+          "description": "A complete guide to creating drag animations in React with Motion. Learn to build draggable UIs with constraints, momentum, direction locking, and more."
+        },
+        {
+          "uri": "motion://docs/react/motion-component",
+          "name": "React: Motion component",
+          "description": "Drive animations in Motion for React with motion components. Supercharge HTML/SVG for 120fps animations & gestures. High-performance, SSR-compatible & customizable."
+        },
+        {
+          "uri": "motion://docs/react/animate-presence",
+          "name": "React: AnimatePresence",
+          "description": "Enable effortless exit animations in React with AnimatePresence. It animates components on removal via the exit prop."
+        },
+        {
+          "uri": "motion://docs/react/layout-group",
+          "name": "React: LayoutGroup",
+          "description": "Group elements to share state and enable seamless layout transitions, even when not re-rendered together. Namespace layoutId for complex UIs."
+        },
+        {
+          "uri": "motion://docs/react/lazy-motion",
+          "name": "React: LazyMotion",
+          "description": "Reduce your initial bundle size with LazyMotion in Motion for React. Load animation features synchronously or asynchronously, shrinking bundles to as low as 4.6kb."
+        },
+        {
+          "uri": "motion://docs/react/motion-config",
+          "name": "React: MotionConfig",
+          "description": "Configure all child motion components in React with MotionConfig. Set global transitions, manage reducedMotion preferences, and ensure CSP nonce compliance easily."
+        },
+        {
+          "uri": "motion://docs/react/reorder",
+          "name": "React: Reorder",
+          "description": "Easily create drag-to-reorder lists with Motion for React's Reorder components. Use Reorder.Group and Reorder.Item to manage list order, with automatic layout and exit animations. Lightweight and simple."
+        },
+        {
+          "uri": "motion://docs/react/motion-value",
+          "name": "React: Motion values overview",
+          "description": "Power React animations with Motion values. Track state/velocity, sync components & update styles without re-renders. Compose with useTransform/useSpring."
+        },
+        {
+          "uri": "motion://docs/react/use-motion-template",
+          "name": "React: useMotionTemplate",
+          "description": "Combine motion values into dynamic strings with Motion for React's useMotionTemplate. Create auto-updating, interpolated values for responsive animations."
+        },
+        {
+          "uri": "motion://docs/react/use-motion-value-event",
+          "name": "React: useMotionValueEvent",
+          "description": "Manage motion value event listeners in React with useMotionValueEvent. Auto-cleans events like change & animationComplete for dynamic UIs."
+        },
+        {
+          "uri": "motion://docs/react/use-scroll",
+          "name": "React: useScroll",
+          "description": "Create scroll-linked animations like progress bars & parallax with Motion for React's useScroll hook. Track scroll, element position & use motion values."
+        },
+        {
+          "uri": "motion://docs/react/use-spring",
+          "name": "React: useSpring",
+          "description": "Discover Motion for React's useSpring hook. Create smooth spring animations for motion values. Learn to animate with .set(), track values & customize transitions."
+        },
+        {
+          "uri": "motion://docs/react/use-time",
+          "name": "React: useTime",
+          "description": "Explore Motion for React's useTime hook. It returns elapsed time in ms every frame. Learn how it creates perpetual animations & composes with other motion values."
+        },
+        {
+          "uri": "motion://docs/react/use-transform",
+          "name": "React: useTransform",
+          "description": "Discover Motion for React's useTransform hook. Create new motion values by transforming others. Learn to map ranges & use clamp, ease, mixer for advanced control."
+        },
+        {
+          "uri": "motion://docs/react/use-velocity",
+          "name": "React: useVelocity",
+          "description": "Discover Motion for React's useVelocity hook. It tracks a motion value's velocity, letting you monitor the rate of change for any animatable value easily."
+        },
+        {
+          "uri": "motion://docs/react/three-fiber",
+          "name": "React: Motion for React Three Fiber",
+          "description": "Learn how to use Motion for React with React Three Fiber."
+        },
+        {
+          "uri": "motion://docs/react/three-fiber-layout-cameras",
+          "name": "React: Layout cameras",
+          "description": "A perspective and orthographic camera that integrates with Framer Motion's layout animations."
+        },
+        {
+          "uri": "motion://docs/react/three-fiber-motion-canvas",
+          "name": "React: MotionCanvas",
+          "description": "A React Three Fiber Canvas replacement for linking Motion for React DOM and Three.js."
+        },
+        {
+          "uri": "motion://docs/react/installation",
+          "name": "React: Installation guide for Motion for React",
+          "description": "Your complete guide to installing Motion for React. Learn how to set up the animation library in any project using npm, Yarn, or pnpm, with specific guides for Next.js and Vite."
+        },
+        {
+          "uri": "motion://docs/react/upgrade-guide",
+          "name": "React: Upgrade guide",
+          "description": "Stay up-to-date with Motion and Motion for React using our comprehensive Upgrade Guide. Find step-by-step instructions and details on breaking API changes for each major version, ensuring a smooth upgrade process from your current version to the latest release."
+        },
+        {
+          "uri": "motion://docs/react/use-animate",
+          "name": "React: useAnimate",
+          "description": "Discover Motion for React's useAnimate hook for component-scoped animations. Use its animate function for manual control, scoped selectors & auto cleanup."
+        },
+        {
+          "uri": "motion://docs/react/use-animation-frame",
+          "name": "React: useAnimationFrame",
+          "description": "Use Motion for React's useAnimationFrame hook to run callbacks on every frame. Leverage time & delta args for precise animation control & custom frame logic."
+        },
+        {
+          "uri": "motion://docs/react/use-drag-controls",
+          "name": "React: useDragControls",
+          "description": "Learn how to use Motion for React's useDragControls hook to manually initiate drag gestures on motion components from any pointer event. Discover how to start dragging, enable touch support, snap to cursor, and disable automatic dragging for more custom drag interactions."
+        },
+        {
+          "uri": "motion://docs/react/use-in-view",
+          "name": "React: useInView",
+          "description": "Use Motion for React's tiny useInView hook (0.6kb) to detect when elements enter the viewport. Track visibility, trigger effects & customize detection easily."
+        },
+        {
+          "uri": "motion://docs/react/use-page-in-view",
+          "name": "React: usePageInView",
+          "description": "Track page visibility with Motion for React's usePageInView hook. Improve performance and UX by pausing animations when the document isn't visible. SSR-compatible and simple API."
+        },
+        {
+          "uri": "motion://docs/react/use-reduced-motion",
+          "name": "React: useReducedMotion",
+          "description": "Learn to use Motion for React's useReducedMotion hook to detect reduced motion settings. Create accessible UIs by adapting animations and motion features."
+        },
+        {
+          "uri": "motion://docs/react/accessibility",
+          "name": "React: Accessibility",
+          "description": "Learn how to create accessible animations with Motion for React by respecting users' 'Reduced Motion' preferences. Discover the reducedMotion option for site-wide settings and the useReducedMotion hook for custom solutions like replacing transforms with opacity, disabling autoplaying videos, and parallax effects."
+        },
+        {
+          "uri": "motion://docs/react/reduce-bundle-size",
+          "name": "React: Reduce bundle size",
+          "description": "Learn how to optimize your Motion for React bundle size for faster loading web experiences. This guide explains tree shaking, the benefits of useAnimate mini (2.3kb), and how to significantly reduce the motion component's size to under 4.6kb using m and LazyMotion with lazy-loaded features."
+        },
+        {
+          "uri": "motion://docs/react/courses",
+          "name": "React: Motion Courses for React",
+          "description": "Master high-performance animations. Browse Motion Certified courses for advanced theory and best practices, or explore community-led resources perfect for beginners learning Motion for React."
+        },
+        {
+          "uri": "motion://docs/react/framer",
+          "name": "React: Motion x Framer integration guide",
+          "description": "Add animations to your Framer project with Motion. Use Motion in Code Components and Overrides."
+        },
+        {
+          "uri": "motion://docs/react/figma",
+          "name": "React: Animate your Figma projects with Motion",
+          "description": "Animate your Figma Site with Motion. Add no-code animations with Interactions, and generate Motion code with Figma Make."
+        },
+        {
+          "uri": "motion://docs/react/tailwind",
+          "name": "React: Animating with Tailwind CSS",
+          "description": "Unlock powerful UI animations by combining Motion with Tailwind CSS. This guide covers practical tricks for animating utility classes, generating CSS springs and more."
+        },
+        {
+          "uri": "motion://docs/react/base-ui",
+          "name": "React: Base UI & Motion",
+          "description": "Learn how to integrate Motion with Base UI React components. This guide covers using motion components with Base UI primitives, implementing exit animations with AnimatePresence, and managing layout animations."
+        },
+        {
+          "uri": "motion://docs/react/radix",
+          "name": "React: Radix UI & Motion",
+          "description": "Learn how to add smooth animations to Radix UI with Motion for React. Exit, layout, and transition examples for Tooltips, Dialogs, and more."
+        },
+        {
+          "uri": "motion://docs/js/quick-start",
+          "name": "JavaScript: Get started with Motion",
+          "description": "Learn Motion animation library: Install, animate HTML/SVG/WebGL elements with spring animations, staggering effects. Complete guide with examples."
+        },
+        {
+          "uri": "motion://docs/js/animate",
+          "name": "JavaScript: animate",
+          "description": "Explore Motion's powerful animate() function for creating and controlling animations. Animate HTML, SVG, CSS variables, and SVG paths with mini (2.3kb) or hybrid (18kb) versions. Utilize tween, spring, or inertia animations, build complex sequences, and take advantage of comprehensive playback controls."
+        },
+        {
+          "uri": "motion://docs/js/scroll",
+          "name": "JavaScript: scroll",
+          "description": "Learn how Motion's 5.1kb scroll() function creates high-performance, scroll-linked animations by leveraging the ScrollTimeline API. Bind animations directly to scroll progress, track vertical or horizontal scroll, and target specific elements or container scroll. Discover options for scroll offsets, pinning, and detailed scroll information."
+        },
+        {
+          "uri": "motion://docs/js/easing-functions",
+          "name": "JavaScript: Easing functions",
+          "description": "Explore Motion's built-in easing functions to control animation speed and feel. Learn how to use cubicBezier, steps, easeIn/Out, backIn/Out, circIn/Out, anticipate, and linear easings. Discover modifiers like reverseEasing and mirrorEasing for advanced control."
+        },
+        {
+          "uri": "motion://docs/js/hover",
+          "name": "JavaScript: hover",
+          "description": "Discover Motion's hover function for reliable hover gesture detection, filtering out emulated touch events. "
+        },
+        {
+          "uri": "motion://docs/js/inview",
+          "name": "JavaScript: inView",
+          "description": "Learn to use Motion's inView function to detect when elements enter and leave the viewport. Built on Intersection Observer for optimal performance (0.5kb), it's ideal for scroll-triggered animations, lazy-loading, and more. Customize detection with root, margin, and amount options."
+        },
+        {
+          "uri": "motion://docs/js/press",
+          "name": "JavaScript: press",
+          "description": "Discover Motion's press function for robust press gesture detection. Learn how it filters secondary pointers, enhances accessibility with keyboard support, and simplifies event listener management. Explore options for start and end callbacks, and passive/once event handling."
+        },
+        {
+          "uri": "motion://docs/js/resize",
+          "name": "JavaScript: resize",
+          "description": "Efficiently monitor and react to size changes of the viewport, or HTML and SVG elements, with resize. This function uses the ResizeObserver API to provide performant, per-element resize event handling, complete with easy-to-use cleanup. Ideal for dynamic layouts and responsive component designs."
+        },
+        {
+          "uri": "motion://docs/js/motion-value",
+          "name": "JavaScript: motionValue",
+          "description": "Understand Motion Values, the core of Motion's animation system, used for tracking the state and velocity of animated properties. Learn how to manually create, set, get, and subscribe to motion values for advanced animation control and rendering with effects."
+        },
+        {
+          "uri": "motion://docs/js/map-value",
+          "name": "JavaScript: mapValue",
+          "description": "Learn to use Motion's mapValue to create a new read-only motion value by mapping a numerical motion value's output to a range of numbers, colors, or complex strings. Understand how to define input/output ranges and control clamping behavior."
+        },
+        {
+          "uri": "motion://docs/js/transform-value",
+          "name": "JavaScript: transformValue",
+          "description": "Discover Motion's transformValue to create new read-only motion values by computing output from one or more existing motion values. Learn how it facilitates combining multiple values or performing calculations, with automatic dependency tracking and composability."
+        },
+        {
+          "uri": "motion://docs/js/spring-value",
+          "name": "JavaScript: springValue",
+          "description": "Learn to use Motion's springValue to create motion values that animate with physics-based spring motion. Discover how to apply springs to numbers or existing motion values, and configure them using options like stiffness, damping, and mass for reactive animations."
+        },
+        {
+          "uri": "motion://docs/js/attr-effect",
+          "name": "JavaScript: attrEffect",
+          "description": "Discover Motion's attrEffect for applying motion values to HTML element attributes. Learn how it handles aria and data attribute casing, utilizes JavaScript setters for improved performance, and enables re-rendering when motion values update."
+        },
+        {
+          "uri": "motion://docs/js/prop-effect",
+          "name": "JavaScript: propEffect",
+          "description": "Learn to use Motion's propEffect to dynamically apply motion values to JavaScript object properties. Understand how it facilitates re-rendering on updates, its utility for libraries like Three.js, and how to apply and clean up effects."
+        },
+        {
+          "uri": "motion://docs/js/style-effect",
+          "name": "JavaScript: styleEffect",
+          "description": "Discover Motion's styleEffect for applying motion values to HTML elements. Learn how it supports independent transforms, default unit types, CSS properties, and enables efficient re-rendering on motion value updates."
+        },
+        {
+          "uri": "motion://docs/js/svg-effect",
+          "name": "JavaScript: svgEffect",
+          "description": "Learn how to use Motion's svgEffect to apply motion values to SVG element styles and attributes. Discover how to create 'draw' animations with pathLength, pathSpacing, and pathOffset, and understand its automatic CSS-style transform origin handling."
+        },
+        {
+          "uri": "motion://docs/js/delay",
+          "name": "JavaScript: delay",
+          "description": "Discover Motion's delay function, a setTimeout alternative locked to the animation frame loop. Learn how it helps synchronize callbacks with animations, and reduces computational overhead."
+        },
+        {
+          "uri": "motion://docs/js/frame",
+          "name": "JavaScript: frame",
+          "description": "Learn to use Motion's frame function to schedule tasks on its optimized animation loop. Discover how it prevents layout thrashing, offers a keep-alive API for custom loops, and improves performance by avoiding multiple requestAnimationFrame calls. Understand how to schedule callbacks for read, update, and render steps."
+        },
+        {
+          "uri": "motion://docs/js/mix",
+          "name": "JavaScript: mix",
+          "description": "Discover Motion's mix() function to smoothly interpolate between two values based on a 0-1 progress. Learn to mix numbers, colors (with linear RGB for better fidelity), complex strings, arrays, and objects. Explore how to apply easing and generate randomly distributed values."
+        },
+        {
+          "uri": "motion://docs/js/spring",
+          "name": "JavaScript: spring",
+          "description": "Explore Motion's spring() function for creating realistic spring animations. Learn how to use it with animate() or directly for advanced scenarios like visualizers and CSS spring generation. Understand key options including keyframes, duration, bounce, damping, mass, and stiffness."
+        },
+        {
+          "uri": "motion://docs/js/stagger",
+          "name": "JavaScript: stagger",
+          "description": "Learn to create staggered animations across multiple elements with Motion's stagger() function. Discover options to customize the starting delay, the stagger origin ('first', 'center', 'last', or an index), and apply easing to the stagger distribution."
+        },
+        {
+          "uri": "motion://docs/js/transform",
+          "name": "JavaScript: transform",
+          "description": "Discover Motion's transform function to map an input value from one range to another. Learn how to use it with linear input ranges and various output types like numbers, colors, or complex strings."
+        },
+        {
+          "uri": "motion://docs/js/wrap",
+          "name": "JavaScript: wrap",
+          "description": "Learn how to use Motion's wrap() function to constrain a value within a specific range. Ideal for implementing features like next/prev pagination by wrapping values back around when they exceed the defined minimum or maximum."
+        },
+        {
+          "uri": "motion://docs/js/faqs",
+          "name": "JavaScript: FAQs",
+          "description": "Find answers to common questions about Motion, including browser support, and troubleshooting for animations."
+        },
+        {
+          "uri": "motion://docs/js/gsap-vs-motion",
+          "name": "JavaScript: GSAP vs Motion: Which should you use?",
+          "description": "Compare Motion and GSAP, two leading JavaScript animation libraries. Discover Motion's advantages in bundle size, hardware acceleration via native browser APIs, and its open-source model, vs GSAP's features."
+        },
+        {
+          "uri": "motion://docs/js/improvements-to-the-web-animations-api-dx",
+          "name": "JavaScript: Improvements to Web Animations API",
+          "description": "Discover how Motion enhances the Web Animations API (WAAPI) with features like spring animations, custom easings, default value types, improved animation state persistence, and independent transform animations. Learn about Motion's hybrid engine for hardware-accelerated performance."
+        },
+        {
+          "uri": "motion://docs/js/migrate-from-gsap-to-motion",
+          "name": "JavaScript: Migrate from GSAP to Motion",
+          "description": "Migrate from GSAP to Motion for hardware-accelerated animations, smaller bundle sizes, and an open MIT license. Learn to convert basic animations, timelines, scroll-triggered/linked animations, and React animations to Motion."
+        },
+        {
+          "uri": "motion://docs/js/performance",
+          "name": "JavaScript: Animation performance",
+          "description": "Boost web animation performance by understanding rendering and hardware acceleration. Learn which CSS properties to animate for smooth 120fps+ experiences, how to optimize rendering, and how Motion leverages hardware acceleration for jank-free animations."
+        },
+        {
+          "uri": "motion://docs/js/upgrade-guide",
+          "name": "JavaScript: Upgrade guide",
+          "description": "Upgrade to the latest version of Motion by following our incremental, version-by-version guide. Major version changes are typically small, making for a quick process."
+        },
+        {
+          "uri": "motion://docs/js/glide",
+          "name": "JavaScript: glide",
+          "description": "The glide easing can create momentum scroll effects and more."
+        },
+        {
+          "uri": "motion://docs/js/css",
+          "name": "JavaScript: CSS",
+          "description": "Learn how to create spring animations with CSS using Motion, both server-side and in the browser. This guide covers React Server Components, CSS-in-JS, Astro, Vue, and provides cross-browser fallback solutions."
+        },
+        {
+          "uri": "motion://docs/js/squarespace",
+          "name": "JavaScript: Add animations to your Squarespace site",
+          "description": "Elevate your Squarespace site with Motion: a free, high-performance animation library. Break free from template limits, create stunning animations, and boost your SEO with its incredibly small footprint. Easy to install and customize for optimal site speed and search ranking."
+        },
+        {
+          "uri": "motion://docs/js/wordpress",
+          "name": "JavaScript: Add animations to your WordPress site",
+          "description": "Enhance your WordPress site with Motion: a free, open-source animation library for creating stunning, high-performance animations. Its tiny footprint and flexibility boost your site's speed and SEO rankings, offering limitless creative possibilities."
+        },
+        {
+          "uri": "motion://examples/js/accordion",
+          "name": "Accordion",
+          "description": "An example of an accordion component using Motion. Animate accordion content using height: auto and accessible markup. Uses focus events and shared layout animations for keyboard accessibility."
+        },
+        {
+          "uri": "motion://examples/js/app-store",
+          "name": "iOS App Store",
+          "description": "An example of creating a card layout inspired by the iOS App Store with Modal functionality using View Transitions in Motion."
+        },
+        {
+          "uri": "motion://examples/js/app-store-layout",
+          "name": "iOS App Store: Layout animation",
+          "description": "An example of creating a card layout inspired by the iOS App Store with Modal functionality using Motion's animateLayout for shared element animations."
+        },
+        {
+          "uri": "motion://examples/js/bounce-easing",
+          "name": "Bounce easing",
+          "description": "A toggle switch that demonstrates custom easing functions with both bounce and spring animations."
+        },
+        {
+          "uri": "motion://examples/js/characters-remaining",
+          "name": "Characters remaining",
+          "description": "An example of creating a character counter with spring animations in Motion"
+        },
+        {
+          "uri": "motion://examples/js/color-interpolation",
+          "name": "Color interpolation",
+          "description": "A comparison of color interpolation between Motion and the browser's native interpolation. Motion uses linear RGB color space, which avoids the dimming effect suffered by browser interpolation."
+        },
+        {
+          "uri": "motion://examples/js/conic-gradient-pointer",
+          "name": "Conic gradient pointer",
+          "description": "An example of creating a dynamic conic gradient that follows the pointer position."
+        },
+        {
+          "uri": "motion://examples/js/family-dialog",
+          "name": "Family-style dialog",
+          "description": "Family-style dialog using Motion. It uses the HTML dialog and Motion's animateView function for View Transitions."
+        },
+        {
+          "uri": "motion://examples/js/gestures",
+          "name": "Gestures",
+          "description": "An example of using Motion's press and hover functions to animate elements as a user presses and hovers over them."
+        },
+        {
+          "uri": "motion://examples/js/hold-to-confirm",
+          "name": "Hold to confirm",
+          "description": "A Motion example showing long-press interaction. The button's events update a progress motion value that drives multiple animations of other motion values."
+        },
+        {
+          "uri": "motion://examples/js/hover",
+          "name": "Hover",
+          "description": "An example of using Motion's hover function to animate elements as a user hovers over them. hover() automatically filters out polyfilled hover events from touch screens, which can normally lead to broken visual states."
+        },
+        {
+          "uri": "motion://examples/js/html-content",
+          "name": "HTML content",
+          "description": "An example using Motion to animate HTML content via the Element.innerText property."
+        },
+        {
+          "uri": "motion://examples/js/image-reveal-slider",
+          "name": "Image reveal slider",
+          "description": "An image reveal slider that uses Motion's drag functionality to create a before/after image comparison with a sliding reveal effect. It includes keyboard accessibility and smooth animations."
+        },
+        {
+          "uri": "motion://examples/js/ios-slider",
+          "name": "iOS slider",
+          "description": "An example of recreating the iOS slider using Motion for JavaScript. This example creates a brightness slider with iOS-like overscroll and springy animations."
+        },
+        {
+          "uri": "motion://examples/js/layered-sections",
+          "name": "Layered sections",
+          "description": "An example of creating a layered scrolling effect using CSS sticky to replace GSAP's scroll pinning."
+        },
+        {
+          "uri": "motion://examples/js/layout-animation",
+          "name": "Layout animation",
+          "description": "An example of animating a simple layout change using Motion's animateLayout function."
+        },
+        {
+          "uri": "motion://examples/js/lightbox",
+          "name": "Lightbox",
+          "description": "An example of a lightbox shared element transitionusing Motion's view function."
+        },
+        {
+          "uri": "motion://examples/js/loading-circle-spinner",
+          "name": "Loading: Circle spinner",
+          "description": "An example of creating a circle spinner loading animation with Motion."
+        },
+        {
+          "uri": "motion://examples/js/loading-fill-text",
+          "name": "Fill text",
+          "description": "An example of creating a text fill loading animation with Motion."
+        },
+        {
+          "uri": "motion://examples/js/loading-infinite-path-drawing",
+          "name": "Loading: Infinite path drawing",
+          "description": "An example of creating an infinite path drawing loading animation with Motion. This example uses svgEffect to animate the path. svgEffect is the next-generation Motion SVG renderer that makes it easy to create these infinitely looping drawing animations. In a future version of Motion it'll be possible to just use the animate function below without the svgEffect setup."
+        },
+        {
+          "uri": "motion://examples/js/loading-jumping-dots",
+          "name": "Loading: Jumping dots",
+          "description": "An example of creating a jumping dots loading animation with Motion."
+        },
+        {
+          "uri": "motion://examples/js/loading-line-reveal",
+          "name": "Loading overlay",
+          "description": "An example of creating a line reveal loading animation with clipPath in Motion"
+        },
+        {
+          "uri": "motion://examples/js/loading-progress-bar",
+          "name": "Loading progress bar",
+          "description": "An example of creating a progress bar loading animation with Motion."
+        },
+        {
+          "uri": "motion://examples/js/loading-ripple",
+          "name": "Loading ripple",
+          "description": "An example of creating a ripple loading animation with Motion."
+        },
+        {
+          "uri": "motion://examples/js/loading-three-dots-pulse",
+          "name": "Loading: Pulse dots",
+          "description": "An example of creating a pulsing dots loading animation with Motion."
+        },
+        {
+          "uri": "motion://examples/js/material-design-ripple",
+          "name": "Material Design: Ripple",
+          "description": "An example of creating a press ripple with Motion, inspired by Google Material Design."
+        },
+        {
+          "uri": "motion://examples/js/modal",
+          "name": "Modal dialog",
+          "description": "An example of a modal dialog using Motion and the HTML <dialog /> element. This example demonstrates smooth animations for opening and closing the modal, with a backdrop overlay and click-outside-to-close functionality."
+        },
+        {
+          "uri": "motion://examples/js/multi-state-badge",
+          "name": "Multi state badge",
+          "description": "A badge that can be in multiple states, such as processing, success, or error."
+        },
+        {
+          "uri": "motion://examples/js/notifications-list",
+          "name": "Notifications list",
+          "description": "An example of animating a list of animations as they're added and removed, using Motion for JavaScript's animation capabilities. It implements manual FLIP animations so that notifications animate into their new layouts."
+        },
+        {
+          "uri": "motion://examples/js/notifications-stack",
+          "name": "Notifications stack",
+          "description": "A iOS inspired notifications stack using Motion's variants."
+        },
+        {
+          "uri": "motion://examples/js/options",
+          "name": "Basic animation",
+          "description": "An example of using easing and duration options to customise a scale animation in Motion."
+        },
+        {
+          "uri": "motion://examples/js/page-wipe",
+          "name": "Page wipe",
+          "description": "An example of combining a full page wipe with a shared element transition using Motion's view function. The view function is built on the browser's native View Transition API."
+        },
+        {
+          "uri": "motion://examples/js/parallax",
+          "name": "Parallax",
+          "description": "An example of creating a parallax effect using Motion's scroll function."
+        },
+        {
+          "uri": "motion://examples/js/press",
+          "name": "Press",
+          "description": "An example of using Motion's press function to animate elements as a user presses them. press() automatically filters out right clicks and secondary touch points. Every element with a press gesture is keyboard accessible by default."
+        },
+        {
+          "uri": "motion://examples/js/reorder-items",
+          "name": "Reorder items",
+          "description": "An example of animating list reordering using Motion's animateLayout. Items smoothly animate to their new positions when shuffled."
+        },
+        {
+          "uri": "motion://examples/js/rotate",
+          "name": "Rotate",
+          "description": "An example of a rotation animation in Motion."
+        },
+        {
+          "uri": "motion://examples/js/scramble-text",
+          "name": "Scramble text",
+          "description": "Text that scrambles through random characters when transitioning between words using the scrambleText function from Motion+."
+        },
+        {
+          "uri": "motion://examples/js/scramble-text-hover",
+          "name": "Scramble text: Hover",
+          "description": "Text that scrambles through random characters on hover using the scrambleText function from Motion+."
+        },
+        {
+          "uri": "motion://examples/js/scramble-text-stagger-center",
+          "name": "Scramble text: Stagger from center",
+          "description": "Text that scrambles from the center outward using scrambleText with stagger delay from Motion+."
+        },
+        {
+          "uri": "motion://examples/js/scroll-fade",
+          "name": "Scroll fade in/out",
+          "description": "An example of fading content in and out as you scroll using Motion's scroll function."
+        },
+        {
+          "uri": "motion://examples/js/scroll-highlight",
+          "name": "Scroll highlight",
+          "description": "An example of creating a scroll-triggered skill showcase with dynamic highlighting in Motion."
+        },
+        {
+          "uri": "motion://examples/js/scroll-pinning",
+          "name": "Scroll pinning",
+          "description": "An example of pinning content on scroll and animating content horizontally using position: sticky and Motion's scroll function."
+        },
+        {
+          "uri": "motion://examples/js/scroll-triggered",
+          "name": "Scroll-triggered animation",
+          "description": "An example of using Motion's inView function to trigger animations when elements enter the viewport."
+        },
+        {
+          "uri": "motion://examples/js/shared-layout-animation",
+          "name": "Shared layout animation",
+          "description": "An example of a shared layout animation, where an element animates between positions using Motion's animateLayout with data-layout-id."
+        },
+        {
+          "uri": "motion://examples/js/shared-view-animation",
+          "name": "Shared view animation",
+          "description": "Animate shared elements between states using View Transitions API via Motion's view() function."
+        },
+        {
+          "uri": "motion://examples/js/split-text",
+          "name": "Split Text",
+          "description": "Demonstrate how to use the splitText function from Motion+ to create staggered text animations."
+        },
+        {
+          "uri": "motion://examples/js/split-text-scatter",
+          "name": "Split Text: Scatter",
+          "description": "Demonstrate how to use the splitText function from Motion+ to create scatter text animations."
+        },
+        {
+          "uri": "motion://examples/js/split-text-wavy",
+          "name": "Split Text: Wavy",
+          "description": "Demonstrate how to use the splitText function from Motion+ to create wavy text animations."
+        },
+        {
+          "uri": "motion://examples/js/spring",
+          "name": "Spring",
+          "description": "An example of a spring animation in Motion."
+        },
+        {
+          "uri": "motion://examples/js/spring-follow-cursor",
+          "name": "Spring: Follow Cursor",
+          "description": "An example of a spring animation that follows the cursor."
+        },
+        {
+          "uri": "motion://examples/js/stagger",
+          "name": "Stagger",
+          "description": "An example of staggering animations in Motion using its stagger() function."
+        },
+        {
+          "uri": "motion://examples/js/stagger-from-center",
+          "name": "Stagger: From center",
+          "description": "An example of staggering animations from the center outward using stagger() with the from option."
+        },
+        {
+          "uri": "motion://examples/js/stagger-from-last",
+          "name": "Stagger: From last",
+          "description": "An example of staggering animations from the last element using stagger() with the from option."
+        },
+        {
+          "uri": "motion://examples/js/staggered-grid",
+          "name": "Physical stagger",
+          "description": "An example of animating elements with a delay staggered by physical distance."
+        },
+        {
+          "uri": "motion://examples/js/svg-loading-spinner",
+          "name": "SVG loading spinner",
+          "description": "An example of using Motion to animate an SVG loading spinner."
+        },
+        {
+          "uri": "motion://examples/js/svg-path-morphing",
+          "name": "SVG path morphing",
+          "description": "An example of using Motion and Flubber to animate an SVG between different shapes."
+        },
+        {
+          "uri": "motion://examples/js/tab-select",
+          "name": "Tab select",
+          "description": "An example of a tab select component using Motion's animateLayout for shared layout animations. The selected indicator smoothly moves between tabs."
+        },
+        {
+          "uri": "motion://examples/js/text-reveal",
+          "name": "Reveal text effect",
+          "description": "An example of revealing text on hover using flexbox and Motion's layout animations."
+        },
+        {
+          "uri": "motion://examples/js/three",
+          "name": "Three.js",
+          "description": "An example of a rotating cube using Three.js and Motion."
+        },
+        {
+          "uri": "motion://examples/js/tilt-card",
+          "name": "Tilt card",
+          "description": "A card that tilts based on pointer position using Motion's spring animations."
+        },
+        {
+          "uri": "motion://examples/js/typewriter",
+          "name": "Typewriter",
+          "description": "An example of a typewriter effect using Motion for JavaScript animation values."
+        },
+        {
+          "uri": "motion://examples/js/view-animation",
+          "name": "View animation",
+          "description": "An example of animating a layout change using the View Transitions API via Motion's simple view function."
+        },
+        {
+          "uri": "motion://examples/vue/accordion",
+          "name": "Accordion",
+          "description": "An example of an accordion component using Motion for Vue. Animate accordion content using height: auto and accessible markup. Uses focus events and shared layout animations for keyboard accessibility."
+        },
+        {
+          "uri": "motion://examples/vue/animate-presence-modes",
+          "name": "AnimatePresence modes",
+          "description": "An example of the three AnimatePresence modes (sync, wait, and popLayout) demonstrating how elements enter and exit the DOM with Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/announcement",
+          "name": "Announcement",
+          "description": "The Motion for Vue announcement animation, built using Motion for Vue itself."
+        },
+        {
+          "uri": "motion://examples/vue/app-store",
+          "name": "iOS App Store",
+          "description": "An example of animating cards inspired by the iOS App Store using Motion for Vue's layout animations."
+        },
+        {
+          "uri": "motion://examples/vue/apple-intelligence",
+          "name": "Apple Intelligence ripple",
+          "description": "An example of the 'ripple' part of the Apple Intelligence animation using Motion for Vue. It uses a cloned version of the current content rather than using shaders."
+        },
+        {
+          "uri": "motion://examples/vue/apple-watch-home-screen",
+          "name": "Apple Watch Home Screen",
+          "description": "A recreation of the Apple Watch home screen's iconic app grid with fluid drag interactions and dynamic scaling using Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/aspect-ratio",
+          "name": "Aspect Ratio",
+          "description": "An example of animating aspect-ratio using Motion for Vue's layout animations."
+        },
+        {
+          "uri": "motion://examples/vue/bounce-easing",
+          "name": "Bounce Easing",
+          "description": "An example of creating a bounce custom easing function in Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/card-stack",
+          "name": "Card stack",
+          "description": "An example of creating a swipeable card stack with photos in Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/carousel",
+          "name": "Carousel",
+          "description": "An example of creating a carousel using the Motion+ Carousel component for React."
+        },
+        {
+          "uri": "motion://examples/vue/carousel-autoplay",
+          "name": "Carousel: Autoplay",
+          "description": "An example of creating an autoplay carousel with a progress bar indicator using the Motion+ Carousel component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/carousel-coverflow",
+          "name": "Carousel: Coverflow",
+          "description": "An example of creating a coverflow-style carousel with 3D rotation using the Motion+ Carousel component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/carousel-free-scroll",
+          "name": "Carousel: Free scroll",
+          "description": "An example of creating a free-scrolling carousel without snap points using the Motion+ Carousel component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/carousel-ios-exposure-slider",
+          "name": "Carousel: iOS exposure slider",
+          "description": "An example of creating a camera exposure slider interface with animated notches using the Motion+ Carousel component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/carousel-item-offset",
+          "name": "Carousel: Offset-linked animations",
+          "description": "An example of creating a carousel with offset-linked animations using the Motion+ Carousel component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/carousel-lightbox",
+          "name": "Carousel: Lightbox",
+          "description": "An example of creating a carousel with lightbox overlay functionality using the Motion+ Carousel component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/carousel-loop",
+          "name": "Carousel: Loop",
+          "description": "An example of creating a carousel with infinite scrolling using the Motion+ Carousel component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/carousel-pagination-arrows",
+          "name": "Carousel: Pagination",
+          "description": "An example of creating a carousel with clickable pagination dots and navigation arrows using the Motion+ Carousel component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/carousel-pagination-page-count",
+          "name": "Carousel: Pagination with page count",
+          "description": "An example of creating a carousel with pagination indicators that show the current page and total pages using the Motion+ Carousel component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/carousel-pagination-scaling",
+          "name": "Carousel: Scaling pagination dots",
+          "description": "An example of creating a carousel with pagination dots that scale down at the edges in Motion+ Carousel component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/carousel-parallax",
+          "name": "Carousel: Parallax",
+          "description": "An example of creating a carousel with a parallax effectusing the Motion+ Carousel component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/carousel-progress-scrubber",
+          "name": "Carousel: Progress scrubber",
+          "description": "An example of creating a carousel with a progress scrubber using the Motion+ Carousel component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/carousel-rtl",
+          "name": "Carousel: Vertical",
+          "description": "An example of creating a vertical carousel with navigation in Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/carousel-thumbnail-gallery",
+          "name": "Carousel: Thumbnail gallery",
+          "description": "An example of creating a carousel with a thumbnail navigation gallery using the Motion+ Carousel"
+        },
+        {
+          "uri": "motion://examples/vue/carousel-vertical",
+          "name": "Carousel: Vertical",
+          "description": "An example of creating a vertical carousel with navigation in Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/characters-remaining",
+          "name": "Characters remaining",
+          "description": "An example of creating a character counter with spring animations in Motion for Vue"
+        },
+        {
+          "uri": "motion://examples/vue/color-picker",
+          "name": "Color picker",
+          "description": "An example of creating a circular color picker with dots that react to cursor movement with soft springs using Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/conic-gradient-pointer",
+          "name": "Conic gradient pointer",
+          "description": "An example of creating a dynamic conic gradient with motion values and pointer position."
+        },
+        {
+          "uri": "motion://examples/vue/css-spring",
+          "name": "CSS Spring",
+          "description": "An example of using Motion's spring function with Vue's CSS transition property."
+        },
+        {
+          "uri": "motion://examples/vue/cursor",
+          "name": "Cursor: Adaptive caret size",
+          "description": "An example of Motion+ Cursor with default settings. Motion+ Cursor is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/vue/cursor-custom-content",
+          "name": "Cursor: Custom content",
+          "description": "An example of adding custom content to Motion+ Cursor when hovering over a specific element. Motion+ Cursor is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/vue/cursor-floating-target",
+          "name": "Cursor: Floating target",
+          "description": "An example of creating a floating target with rotating text and hover effects using the Motion+ Cursor and usePointerPosition."
+        },
+        {
+          "uri": "motion://examples/vue/cursor-follow",
+          "name": "Cursor: Follow",
+          "description": "An example of making an element follow the cursor with a spring animation using Motion+ Cursor. Motion+ Cursor is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/vue/cursor-hover-follow",
+          "name": "Cursor: Image hover",
+          "description": "An example of a cursor image hover effect using Motion for Vue. It links skewX and skewY to the cursor velocity, smoothed via useSpring."
+        },
+        {
+          "uri": "motion://examples/vue/cursor-magnetic",
+          "name": "Cursor: Magnetic target",
+          "description": "An example of Motion+ Cursor with magnetic target snapping enabled. Motion+ Cursor is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/vue/cursor-multifollow",
+          "name": "Cursor: Multi-follow",
+          "description": "An example of attaching multiple elements to follow the cursor at the same time, all with different spring animations. Motion+ Cursor is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/vue/cursor-trail",
+          "name": "Cursor trail",
+          "description": "An example of creating a cursor trail with images in Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/cursor-trail-velocity",
+          "name": "Cursor trail velocity",
+          "description": "An example of creating a cursor trail with velocity-based inertia animations in Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/drag",
+          "name": "Drag",
+          "description": "An example of making an element draggable using Motion for Vue's drag prop."
+        },
+        {
+          "uri": "motion://examples/vue/drag-constraints",
+          "name": "Drag: Constraints",
+          "description": "An example of making an element draggable using Motion for Vue's drag prop. You can even set drag constraints by providing a ref to another element."
+        },
+        {
+          "uri": "motion://examples/vue/drag-lock-direction",
+          "name": "Drag Lock Direction",
+          "description": "An example of locking the drag direction of a Motion for Vue component."
+        },
+        {
+          "uri": "motion://examples/vue/enter-animation",
+          "name": "Enter Animation",
+          "description": "An example of animating an element when it's added to the DOM using Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/exit-animation",
+          "name": "Exit animation",
+          "description": "An example of animating an element when it's removed from the DOM using AnimatePresence in Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/family-dialog",
+          "name": "Family-style dialog",
+          "description": "Family-style dialog using Motion for Vue. It uses the HTML dialog and Motion's shared layout animations."
+        },
+        {
+          "uri": "motion://examples/vue/follow-pointer-with-spring",
+          "name": "Follow pointer with spring",
+          "description": "An example of making an element follow the pointer with a spring using Motion for Vue's useSpring hook."
+        },
+        {
+          "uri": "motion://examples/vue/gestures",
+          "name": "Gestures",
+          "description": "An example of using gestures to animate an element using Motion for Vue's simple press and hover props."
+        },
+        {
+          "uri": "motion://examples/vue/hold-to-confirm",
+          "name": "Hold to confirm",
+          "description": "A Motion for Vue example showing long-press interaction. The button's events update a progress motion value that drives multiple animations of other motion values."
+        },
+        {
+          "uri": "motion://examples/vue/html-content",
+          "name": "HTML content",
+          "description": "An example using Motion for Vue to animate HTML content by rendering a MotionValue with RowValue component."
+        },
+        {
+          "uri": "motion://examples/vue/image-reveal-slider",
+          "name": "Image reveal slider",
+          "description": "An image reveal slider that uses Motion for Vue's drag functionality and useTransform to map the position of the slider to a clipPath for the image reveal effect, and to the dividing line's background color to fade it out closer to the edges. The slider is made keyboard accessible with arrow keyboard input and spring animations to indicate the slider boundaries."
+        },
+        {
+          "uri": "motion://examples/vue/infinite-loading",
+          "name": "Infinite loading",
+          "description": "An example of creating an infinite loading list with staggered animations in Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/ios-app-folder",
+          "name": "iOS App Folder",
+          "description": "An iOS-style app folder that expands to reveal apps inside, using Motion for Vue's layout animations and AnimatePresence."
+        },
+        {
+          "uri": "motion://examples/vue/ios-pointer",
+          "name": "iOS pointer animation",
+          "description": "An example of making the iOS pointer animation using Motion+ Cursor's magnetic snapping. Motion+ Cursor is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/vue/ios-slider",
+          "name": "iOS slider",
+          "description": "An example of recreating the iOS slider using Motion for Vue. This example uses useTransform to map input to slider state, and slider state to pull, squish and squash animations. It uses Vue's onFocus and onBlur to set up keyboard-accessible inputs, with Motion's whileFocus prop to animate a custom focus indicator."
+        },
+        {
+          "uri": "motion://examples/vue/keyframes",
+          "name": "Keyframes",
+          "description": "An example of animating an element using keyframes with Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/keyframes-wildcards",
+          "name": "Keyframe wildcards",
+          "description": "An example of using Motion for Vue's keyframe wildcards to create interruptible keyframe animations. "
+        },
+        {
+          "uri": "motion://examples/vue/layout-animation",
+          "name": "Layout animation",
+          "description": "An example of animating a layout change using Motion for Vue's simple layout prop."
+        },
+        {
+          "uri": "motion://examples/vue/line-graph",
+          "name": "Line graph",
+          "description": "An SVG line graph that uses Cursor and AnimateNumber to display changes in data points as an animated cursor annotation."
+        },
+        {
+          "uri": "motion://examples/vue/loading-circle-spinner",
+          "name": "Loading: Circle spinner",
+          "description": "An example of creating a circle spinner loading animation with Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/loading-fill-text",
+          "name": "Fill text",
+          "description": "An example of creating a text fill loading animation with Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/loading-jumping-dots",
+          "name": "Loading: Jumping dots",
+          "description": "An example of creating a jumping dots loading animation with Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/loading-line-reveal",
+          "name": "Loading overlay",
+          "description": "An example of creating a line reveal loading animation with clipPath in Motion for Vue"
+        },
+        {
+          "uri": "motion://examples/vue/loading-progress-bar",
+          "name": "Loading progress bar",
+          "description": "An example of creating a progress bar loading animation with Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/loading-ripple",
+          "name": "Loading ripple",
+          "description": "An example of creating a ripple loading animation with Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/loading-three-dots-pulse",
+          "name": "Loading: Pulse dots",
+          "description": "An example of creating a pulsing dots loading animation with Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/magnetic-filings",
+          "name": "Magnetic filings",
+          "description": "An example of creating a grid of metal filings that rotate to point towards the cursor position using Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/material-design-ripple",
+          "name": "Material Design: Ripple",
+          "description": "An example of creating a press ripple with Motion for Vue, inspired by Google Material Design."
+        },
+        {
+          "uri": "motion://examples/vue/modal",
+          "name": "Modal dialog",
+          "description": "An example of a modal dialog using Motion for Vue and the HTML <dialog /> element. This example uses a custom useDialog hook to manage Vue's declarative API with the dialog HTML element's imperative setModal and close API. It also provides a useClickOutside hook to check when the document has been clicked outside the modal dialog to close it."
+        },
+        {
+          "uri": "motion://examples/vue/modal-shared-layout",
+          "name": "Modal: Shared layout",
+          "description": "A modal example demonstrating shared layout animations between a grid of items and a fullscreen modal using Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/motion-path",
+          "name": "Motion along a path",
+          "description": "An example of animating an element along a path using Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/multi-state-badge",
+          "name": "Multi state badge",
+          "description": "A badge that can be in multiple states, such as processing, success, or error."
+        },
+        {
+          "uri": "motion://examples/vue/multifollow-pointer-with-spring",
+          "name": "Drag with spring follow",
+          "description": "An example of making multiple elements follow the pointer on drag, using Motion for Vue's useSpring hook."
+        },
+        {
+          "uri": "motion://examples/vue/notifications-list",
+          "name": "Notifications list",
+          "description": "An example of animating a list of animations as they're added and removed, using Motion for Vue's layout animations."
+        },
+        {
+          "uri": "motion://examples/vue/notifications-stack",
+          "name": "iOS Notifications stack",
+          "description": "A iOS inspired notifications stack using Motion for Vue's variants."
+        },
+        {
+          "uri": "motion://examples/vue/number-counter",
+          "name": "Number counter",
+          "description": "An example of using AnimateNumber to animate numbers. AnimateNumber is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/vue/number-engagement-stats",
+          "name": "Engagement stats",
+          "description": "An example of using AnimateNumber to animate numbers on a social media engagement bar. AnimateNumber is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/vue/number-formatting",
+          "name": "Number formatting",
+          "description": "An example of AnimateNumber's formatting options, including currency, rounding, and more. AnimateNumber is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/vue/number-price-switcher",
+          "name": "Price switcher",
+          "description": "An example of using AnimateNumber to animate a price between monthly and yearly. AnimateNumber is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/vue/number-radix-slider",
+          "name": "Radix: Slider with AnimateNumber",
+          "description": "An example of using AnimateNumber and Radix Slider to animate numbers to label a slider input. AnimateNumber is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/vue/parallax",
+          "name": "Parallax",
+          "description": "An example of creating a parallax effect using Motion for Vue's useScroll hook."
+        },
+        {
+          "uri": "motion://examples/vue/path-drawing",
+          "name": "Path drawing",
+          "description": "An example of animating a SVG path to make a path drawing effect, using Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/path-morphing",
+          "name": "Path morphing",
+          "description": "An example of morphing one SVG path to another path, using Motion for Vue and Flubber."
+        },
+        {
+          "uri": "motion://examples/vue/radix-accordion",
+          "name": "Radix: Accordion",
+          "description": "An accordion component with smooth height animations using Radix UI and Motion"
+        },
+        {
+          "uri": "motion://examples/vue/radix-checkbox",
+          "name": "Radix: Checkbox",
+          "description": "A checkbox with path line animation for the tick using Radix UI and Motion"
+        },
+        {
+          "uri": "motion://examples/vue/radix-context-menu",
+          "name": "Radix: Context Menu",
+          "description": "A context menu with smooth animations using Radix UI and Motion. "
+        },
+        {
+          "uri": "motion://examples/vue/radix-dialog",
+          "name": "Radix: Dialog",
+          "description": "A dialog component with overlay and content animations using Radix-vue and Motion-vue"
+        },
+        {
+          "uri": "motion://examples/vue/radix-dropdown",
+          "name": "Radix: Dropdown Menu",
+          "description": "A dropdown menu with smooth animations using Radix UI and Motion"
+        },
+        {
+          "uri": "motion://examples/vue/radix-progress",
+          "name": "Radix: Progress",
+          "description": "An example of animating the Radix Progress component using Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/radix-radio-group",
+          "name": "Radix: Radio Group",
+          "description": "An example of animating the Radix Radio Group component using Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/radix-select",
+          "name": "Radix: Select",
+          "description": "An example of animating the Radix Select component using Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/radix-switch",
+          "name": "Radix: Switch",
+          "description": "An example of animating the Radix Switch component using Motion for Vue. This examples uses CSS variables, spring and layout animations to animate the switch by switching justify-content."
+        },
+        {
+          "uri": "motion://examples/vue/radix-tabs",
+          "name": "Radix: Tabs",
+          "description": "An example of animating the Radix Tabs component using Motion for Vue. It uses layout animations to animate the height of the container."
+        },
+        {
+          "uri": "motion://examples/vue/radix-toast",
+          "name": "Radix: Toast",
+          "description": "An example of animating the Radix Toast component using Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/radix-toggle-group",
+          "name": "Radix: Toggle Group",
+          "description": "An example of animating the Radix Toggle Group component using Motion for Vue. It uses shared layout animations and CSS mix blend modes to create an animated selected effect."
+        },
+        {
+          "uri": "motion://examples/vue/radix-toolbar",
+          "name": "Radix: Toolbar",
+          "description": "An example of animating the Radix Toolbar component using Motion for Vue. The Radix toolbar can be tabbed to, with using arrow keys to move between items."
+        },
+        {
+          "uri": "motion://examples/vue/radix-tooltip",
+          "name": "Radix: Tooltip",
+          "description": "An example of animating the Radix Tooltip component using Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/reorder-items",
+          "name": "Reorder animation",
+          "description": "An example of animating when items are reordered, using Motion for Vue's layout prop."
+        },
+        {
+          "uri": "motion://examples/vue/rotate",
+          "name": "Rotate",
+          "description": "An example of animation the rotation of an element with Motion for Vue"
+        },
+        {
+          "uri": "motion://examples/vue/scale-correction",
+          "name": "Scale correction",
+          "description": "An example of layout animation with scale correction using Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/scroll-container",
+          "name": "Element scroll-linked animation",
+          "description": "An example of a scroll-linked animation using a specific element's scroll position using Motion for Vue's useScroll hook."
+        },
+        {
+          "uri": "motion://examples/vue/scroll-highlight",
+          "name": "Scroll highlight",
+          "description": "An example of creating a scrollable list of items where the item in the center of the view is highlighted, using the `useInView` hook and the `animate` function in Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/scroll-linked",
+          "name": "Scroll-linked animations",
+          "description": "An example of linking an animation to scroll using Motion for Vue's useScroll hook."
+        },
+        {
+          "uri": "motion://examples/vue/scroll-linked-with-spring",
+          "name": "Scroll-linked spring animation",
+          "description": "An example of linking an animation to scroll using Motion for Vue's useScroll hook and smoothing it with useSpring."
+        },
+        {
+          "uri": "motion://examples/vue/scroll-track-element-in-viewport",
+          "name": "Track element within viewport",
+          "description": "An example of tracking an element within the viewport using Motion for Vue's useScroll hook."
+        },
+        {
+          "uri": "motion://examples/vue/scroll-triggered",
+          "name": "Scroll-triggered animations",
+          "description": "An example of triggering an animation when an element enters or leaves the viewport using Motion for Vue's inView prop."
+        },
+        {
+          "uri": "motion://examples/vue/shared-layout-animation",
+          "name": "Shared layout animation",
+          "description": "An example of a shared layout animation, where two elements are animated from one to the other, using Motion for Vue's simple layoutId prop."
+        },
+        {
+          "uri": "motion://examples/vue/smooth-tabs",
+          "name": "Smooth tabs",
+          "description": "A set of tabs that trigger a smooth transition between different views."
+        },
+        {
+          "uri": "motion://examples/vue/split-text",
+          "name": "Split text",
+          "description": "An example of creating a text reveal animation with split text in Motion for Vue"
+        },
+        {
+          "uri": "motion://examples/vue/split-text-wavy",
+          "name": "Wavy text",
+          "description": "An example of creating a wavy text animation with split text in Motion for Vue"
+        },
+        {
+          "uri": "motion://examples/vue/staggered-grid",
+          "name": "Physical stagger",
+          "description": "An example of animating elements with a delay staggered by physical distance."
+        },
+        {
+          "uri": "motion://examples/vue/state-updates",
+          "name": "Animate state",
+          "description": "An example of animating in response to state changes using Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/swipe-actions",
+          "name": "Swipe actions",
+          "description": "iOS-style swipe actions where UI elements and animations respond dynamically to swipe progress. Actions trigger via taps or full swipes (for primary actions). A modern, space-efficient alternative to dropdown menus that keeps actions hidden behind the main item until revealed by a swipe gesture."
+        },
+        {
+          "uri": "motion://examples/vue/tab-select",
+          "name": "Tab select",
+          "description": "An example of using making a tab select component with Motion for Vue's shared layout animations. Because it uses onPress and whileFocus, it's keyboard-accessible by default. Try tabbing between the options and hitting Enter."
+        },
+        {
+          "uri": "motion://examples/vue/text-reveal",
+          "name": "Reveal text effect",
+          "description": "An example of revealing text on hover using flexbox and Motion for Vue's layout animations."
+        },
+        {
+          "uri": "motion://examples/vue/ticker",
+          "name": "Ticker",
+          "description": "An example of an animated list of items using the Motion+ Ticker component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/ticker-cursor",
+          "name": "Ticker: Cursor",
+          "description": "An example of creating a custom cursor that combines the Motion+ Ticker and Cursor components for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/ticker-draggable",
+          "name": "Ticker: Draggable",
+          "description": "An example of an draggable list of items using the Motion+ Ticker component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/ticker-keyboard-navigation",
+          "name": "Ticker: Keyboard navigation",
+          "description": "An example of a Motion+ Ticker component for Vue containing focusable items. Tab to the ticker to select the first item, then use the arrow keys to navigate through the ticker."
+        },
+        {
+          "uri": "motion://examples/vue/ticker-overflow",
+          "name": "Ticker: Overflow",
+          "description": "An example of an animated list of items using the Motion+ Ticker component for Vue. This example sets the overflow prop, which allows the ticker items to visually extend outside their layout. This makes it easier to embed a ticker within a longer document, but have the ticker effect extend out to the edges of the screen."
+        },
+        {
+          "uri": "motion://examples/vue/ticker-rtl",
+          "name": "Ticker: RTL",
+          "description": "An example of Motion+ Ticker component for Vue with RTL support."
+        },
+        {
+          "uri": "motion://examples/vue/ticker-scroll",
+          "name": "Ticker: Scroll",
+          "description": "An example of a scroll-driven ticker animation Motion+ Ticker component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/ticker-text-hover-effect",
+          "name": "Ticker: Text hover effect",
+          "description": "An example of creating a text hover effect that replaces the label with a live ticker, using Motion+ Ticker for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/ticker-use-ticker-item",
+          "name": "Ticker: useTickerItem",
+          "description": "An example of animating ticker items based on their current offset using the Motion+ Ticker's useTickerItem hook for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/ticker-y-axis",
+          "name": "Ticker: Vertical scrolling",
+          "description": "An example of a vertical scrolling ticker using the Motion+ Ticker component for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/tilt-card",
+          "name": "Tilt card",
+          "description": "A card that tilts based on pointer position using Motion for Vue's useSpring hook."
+        },
+        {
+          "uri": "motion://examples/vue/todo-list",
+          "name": "To-do list",
+          "description": "A draggable to-do list with animated checkboxes and strikethrough effects using Motion for Vue's Reorder component."
+        },
+        {
+          "uri": "motion://examples/vue/transition",
+          "name": "Transition",
+          "description": "An example of setting transition options in Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/typewriter",
+          "name": "Typewriter",
+          "description": "An example of a typewriter effect using Motion for Vue's Typewriter component."
+        },
+        {
+          "uri": "motion://examples/vue/typewriter-change-content",
+          "name": "Typewriter: Change Content",
+          "description": "An example of a typewriter animation using Motion for Vue's Typewriter component. In this demo, when the content changes, the Typewriter uses a natural typing animation to animate to the latest value."
+        },
+        {
+          "uri": "motion://examples/vue/typewriter-explode",
+          "name": "Typewriter: Exploding Countdown",
+          "description": "An example of a typewriter animation using Motion for Vue's Typewriter component. In this demo, the Typewriter uses a natural typing animation to animate to the latest value, and then explodes the text using splitText."
+        },
+        {
+          "uri": "motion://examples/vue/typewriter-natural-typing",
+          "name": "Typewriter: Natural Typing",
+          "description": "An example of a Vue typewriter animation using Motion for Vue's Typewriter component. In this demo, the Typewriter uses a natural typing animation that's based on the currently-typed word length, position in word, uncommon character combinations and punctuation."
+        },
+        {
+          "uri": "motion://examples/vue/use-animation-frame",
+          "name": "useAnimationFrame",
+          "description": "An example of using Motion for Vue's useAnimationFrame hook to animate a 3D cube."
+        },
+        {
+          "uri": "motion://examples/vue/use-time",
+          "name": "useTime",
+          "description": "An example of using the useTime hook to animate an element at a constant speed."
+        },
+        {
+          "uri": "motion://examples/vue/use-transform",
+          "name": "Value transform & path drawing",
+          "description": "An example of linking SVG path length to a drag gesture using Motion for Vue's easy useTransform hook."
+        },
+        {
+          "uri": "motion://examples/vue/v-motion-enter",
+          "name": "v-motion:enter",
+          "description": "An example of using the v-motion directive to animate an element along a spiral path when it enters the DOM in Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/v-motion-exit",
+          "name": "v-motion:exit",
+          "description": "An example of using the v-motion directive with AnimatePresence to animate an element entering and exiting the DOM in Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/vue/variants",
+          "name": "Variants",
+          "description": "An example of orchestrating animation sequences using Motion for Vue's variants."
+        },
+        {
+          "uri": "motion://examples/vue/warp-overlay",
+          "name": "Warp overlay",
+          "description": "An example of creating a warp overlay effect with Motion for Vue."
+        },
+        {
+          "uri": "motion://examples/react/accordion",
+          "name": "Accordion",
+          "description": "An example of an accordion component using Motion for React. Animate accordion content using height: auto and accessible markup. Uses focus events and shared layout animations for keyboard accessibility."
+        },
+        {
+          "uri": "motion://examples/react/animate-activity",
+          "name": "AnimateActivity: Slideshow",
+          "description": "An example of using AnimateActivity to create a slideshow."
+        },
+        {
+          "uri": "motion://examples/react/animate-presence-modes",
+          "name": "AnimatePresence modes",
+          "description": "An example of the three AnimatePresence modes (sync, wait, and popLayout) demonstrating how elements enter and exit the DOM with Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/animate-view-app-store",
+          "name": "AnimateView: App Store",
+          "description": "An example of animating cards inspired by the iOS App Store using AnimateView's shared element transitions from Motion+ for React."
+        },
+        {
+          "uri": "motion://examples/react/animate-view-clip-path",
+          "name": "AnimateView: Clip path",
+          "description": "An example of using AnimateView with custom clipPath values to create a reveal animation from center outwards using Motion+ for React."
+        },
+        {
+          "uri": "motion://examples/react/animate-view-reorder",
+          "name": "AnimateView: Reorder items",
+          "description": "An example of using AnimateView to animate list items as they reorder, using Motion+ for React's view transition API."
+        },
+        {
+          "uri": "motion://examples/react/animate-view-toggle",
+          "name": "AnimateView: Toggle",
+          "description": "An example of using AnimateView to animate a toggle switch with smooth update animations using Motion+ for React."
+        },
+        {
+          "uri": "motion://examples/react/animate-view-types",
+          "name": "AnimateView: Transition types",
+          "description": "An example of using AnimateView with addTransitionType to create directional prev/next slideshow animations using Motion+ for React."
+        },
+        {
+          "uri": "motion://examples/react/app-store",
+          "name": "iOS App Store",
+          "description": "An example of animating cards inspired by the iOS App Store using Motion for React's layout animations."
+        },
+        {
+          "uri": "motion://examples/react/apple-intelligence",
+          "name": "Apple Intelligence ripple",
+          "description": "An example of the 'ripple' part of the Apple Intelligence animation using Motion for React. It uses a cloned version of the current content rather than using shaders."
+        },
+        {
+          "uri": "motion://examples/react/apple-watch-home-screen",
+          "name": "Apple Watch Home Screen",
+          "description": "A recreation of the Apple Watch home screen's iconic app grid with fluid drag interactions and dynamic scaling using Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/aspect-ratio",
+          "name": "Aspect ratio",
+          "description": "An example of animating aspect-ratio using Motion for React's layout animations."
+        },
+        {
+          "uri": "motion://examples/react/base-accordion",
+          "name": "Base UI: Accordion",
+          "description": "An example of creating an accordion component with Base UI and Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/base-checkbox",
+          "name": "Base UI: Checkbox",
+          "description": "An example of creating a checkbox with path line animation for the tick using Base UI and Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/base-context-menu",
+          "name": "Base UI: Context menu",
+          "description": "An example of creating a context menu with smooth animations using Base UI and Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/base-dialog",
+          "name": "Base UI: Dialog",
+          "description": "An example of creating a dialog component with overlay and content animations using Base UI and Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/base-menu",
+          "name": "Base UI: Dropdown menu",
+          "description": "An example of creating a dropdown menu with smooth animations using Base UI and Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/base-progress",
+          "name": "Base UI: Progress",
+          "description": "An example of creating a progress component using Base UI and Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/base-radio",
+          "name": "Base UI: Radio",
+          "description": "An example of creating a radio group component using Base UI and Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/base-select",
+          "name": "Base UI: Select",
+          "description": "An example of creating a select component using Base UI and Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/base-switch",
+          "name": "Base UI: Switch",
+          "description": "An example of creating a switch component using Base UI and Motion for React. This examples uses CSS variables, spring and layout animations to animate the switch by switching justify-content."
+        },
+        {
+          "uri": "motion://examples/react/base-tabs",
+          "name": "Base UI: Tabs",
+          "description": "An example of creating a tabs component using Base UI and Motion for React. It uses layout animations to animate the height of the container."
+        },
+        {
+          "uri": "motion://examples/react/base-toast",
+          "name": "Base UI: Toast",
+          "description": "An example of creating a toast component using Base UI and Motion for React. It uses spring animations and AnimatePresence to provide exit animations for the toast dialog."
+        },
+        {
+          "uri": "motion://examples/react/base-toggle-group",
+          "name": "Base UI: Toggle group",
+          "description": "An example of creating a toggle group component using Base UI and Motion for React. It uses shared layout animations and CSS mix blend modes to create an animated selected effect."
+        },
+        {
+          "uri": "motion://examples/react/base-tooltip",
+          "name": "Base UI: Tooltip",
+          "description": "An example of creating a tooltip component using Base UI and Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/bezier-curve-editor",
+          "name": "Bezier curve editor",
+          "description": "Motion Studio SDK's bezier curve editor is a controlled, stylable React input with keyboard and touch accessibility."
+        },
+        {
+          "uri": "motion://examples/react/bounce-easing",
+          "name": "Bounce easing",
+          "description": "An example of creating a bounce custom easing function in Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/card-stack",
+          "name": "Card stack",
+          "description": "An example of creating a swipeable card stack with photos in Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel",
+          "name": "Carousel",
+          "description": "An example of creating a carousel using the Motion+ Carousel component for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel-autoplay",
+          "name": "Carousel: Autoplay",
+          "description": "An example of creating an autoplay carousel with a progress bar indicator using the Motion+ Carousel component for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel-coverflow",
+          "name": "Carousel: Coverflow",
+          "description": "An example of creating a coverflow-style carousel with 3D rotation using the Motion+ Carousel component for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel-free-scroll",
+          "name": "Carousel: Free scroll",
+          "description": "An example of creating a free-scrolling carousel without snap points using the Motion+ Carousel component for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel-ios-exposure-slider",
+          "name": "Carousel: iOS exposure slider",
+          "description": "An example of creating a camera exposure slider interface with animated notches using the Motion+ Carousel component for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel-item-offset",
+          "name": "Carousel: Offset-linked animations",
+          "description": "An example of creating a carousel with offset-linked animations using the Motion+ Carousel component for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel-lightbox",
+          "name": "Carousel: Lightbox",
+          "description": "An example of creating a carousel with lightbox overlay functionality using the Motion+ Carousel component for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel-loop",
+          "name": "Carousel: Loop",
+          "description": "An example of creating a carousel with infinite scrolling using the Motion+ Carousel component for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel-pagination-arrows",
+          "name": "Carousel: Pagination",
+          "description": "An example of creating a carousel with clickable pagination dots and navigation arrows using the Motion+ Carousel component for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel-pagination-page-count",
+          "name": "Carousel: Pagination with page count",
+          "description": "An example of creating a carousel with pagination indicators that show the current page and total pages using the Motion+ Carousel component for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel-pagination-scaling",
+          "name": "Carousel: Scaling pagination dots",
+          "description": "An example of creating a carousel with pagination dots that scale down at the edges in Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel-parallax",
+          "name": "Carousel: Parallax",
+          "description": "An example of creating a carousel with a parallax effectusing the Motion+ Carousel component for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel-progress-scrubber",
+          "name": "Carousel: Progress scrubber",
+          "description": "An example of creating a carousel with a progress scrubber using the Motion+ Carousel component for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel-rtl",
+          "name": "Carousel: RTL",
+          "description": "An example of creating a carousel with RTL support using the Motion+ Carousel component for React. The layout of the carousel items is automatically reversed."
+        },
+        {
+          "uri": "motion://examples/react/carousel-scale-items",
+          "name": "Carousel: Scale items",
+          "description": "An example of creating a carousel with items that scale out using the Motion+ Carousel component for React."
+        },
+        {
+          "uri": "motion://examples/react/carousel-thumbnail-gallery",
+          "name": "Carousel: Thumbnail gallery",
+          "description": "An example of creating a carousel with a thumbnail navigation gallery using the Motion+ Carousel"
+        },
+        {
+          "uri": "motion://examples/react/carousel-vertical",
+          "name": "Carousel: Vertical",
+          "description": "An example of creating a vertical carousel with navigation in Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/characters-remaining",
+          "name": "Characters remaining",
+          "description": "An example of creating a character counter with spring animations in Motion for React"
+        },
+        {
+          "uri": "motion://examples/react/color-interpolation",
+          "name": "Color interpolation",
+          "description": "A comparison of color interpolation between Motion and the browser's native interpolation. Motion uses linear RGB color space, which avoids the dimming effect suffered by browser interpolation."
+        },
+        {
+          "uri": "motion://examples/react/color-picker",
+          "name": "Color picker",
+          "description": "An example of creating a circular color picker with dots that react to cursor movement with soft springs using Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/confetti",
+          "name": "Confetti",
+          "description": "Celebratory confetti particle explosion triggered by a button press, with spring-driven button feedback and randomised particle physics"
+        },
+        {
+          "uri": "motion://examples/react/conic-gradient-pointer",
+          "name": "Conic gradient pointer",
+          "description": "An example of creating a dynamic conic gradient with motion values and pointer position."
+        },
+        {
+          "uri": "motion://examples/react/context-menu",
+          "name": "Context Menu",
+          "description": "A custom context menu with submenus, diagonal safe-zone cone, and spring animations using Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/css-spring",
+          "name": "CSS spring",
+          "description": "An example of generating a spring animation in CSS using Motion's spring function."
+        },
+        {
+          "uri": "motion://examples/react/cursor",
+          "name": "Cursor: Adaptive caret size",
+          "description": "An example of Motion+ Cursor with default settings. Motion+ Cursor is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/react/cursor-custom-content",
+          "name": "Cursor: Custom content",
+          "description": "An example of adding custom content to Motion+ Cursor when hovering over a specific element. Motion+ Cursor is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/react/cursor-floating-target",
+          "name": "Cursor: Floating target",
+          "description": "An example of creating a floating target with rotating text and hover effects using the Motion+ Cursor and usePointerPosition."
+        },
+        {
+          "uri": "motion://examples/react/cursor-follow",
+          "name": "Cursor: Follow",
+          "description": "An example of making an element follow the cursor with a spring animation using Motion+ Cursor. Motion+ Cursor is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/react/cursor-hover-follow",
+          "name": "Cursor: Image hover",
+          "description": "An example of a cursor image hover effect using Motion for React. It links skewX and skewY to the cursor velocity, smoothed via useSpring."
+        },
+        {
+          "uri": "motion://examples/react/cursor-magnetic",
+          "name": "Cursor: Magnetic target",
+          "description": "An example of Motion+ Cursor with magnetic target snapping enabled. Motion+ Cursor is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/react/cursor-multifollow",
+          "name": "Cursor: Multi-follow",
+          "description": "An example of attaching multiple elements to follow the cursor at the same time, all with different spring animations. Motion+ Cursor is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/react/cursor-trail",
+          "name": "Cursor trail",
+          "description": "An example of creating a cursor trail with images in Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/cursor-trail-velocity",
+          "name": "Cursor trail velocity",
+          "description": "An example of creating a cursor trail with velocity-based inertia animations in Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/drag",
+          "name": "Drag",
+          "description": "An example of making an element draggable using Motion for React's drag prop."
+        },
+        {
+          "uri": "motion://examples/react/drag-constraints",
+          "name": "Drag: Constraints",
+          "description": "An example of making an element draggable using Motion for React's drag prop. You can even set drag constraints by providing a ref to another element."
+        },
+        {
+          "uri": "motion://examples/react/drag-lock-direction",
+          "name": "Drag: Lock direction",
+          "description": "An example of locking the drag direction of an element based on its initial drag direction using Motion for React's dragDirectionLock prop."
+        },
+        {
+          "uri": "motion://examples/react/enter-animation",
+          "name": "Enter animation",
+          "description": "An example of animating an element when it's added to the DOM using Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/exit-animation",
+          "name": "Exit animation",
+          "description": "An example of animating an element when it's removed from the DOM using AnimatePresence in Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/family-dialog",
+          "name": "Family-style dialog",
+          "description": "Family-style dialog using Motion for React. It uses the HTML dialog and Motion's shared layout animations."
+        },
+        {
+          "uri": "motion://examples/react/floating-action-button",
+          "name": "Floating Action Button",
+          "description": "A FAB that expands into a staggered vertical menu of action items with spring animations and tooltip labels"
+        },
+        {
+          "uri": "motion://examples/react/follow-pointer-with-spring",
+          "name": "Follow pointer with spring",
+          "description": "An example of making an element follow the pointer with a spring using Motion for React's useSpring hook."
+        },
+        {
+          "uri": "motion://examples/react/gestures",
+          "name": "Gestures",
+          "description": "An example of using gestures to animate an element using Motion for React's simple whileTap and whileHover props."
+        },
+        {
+          "uri": "motion://examples/react/hold-to-confirm",
+          "name": "Hold to confirm",
+          "description": "A Motion for React example showing long-press interaction. The button's events update a progress motion value that drives multiple animations of other motion values."
+        },
+        {
+          "uri": "motion://examples/react/html-content",
+          "name": "HTML content",
+          "description": "An example using Motion for React to animate HTML content by rendering a MotionValue."
+        },
+        {
+          "uri": "motion://examples/react/image-reveal-slider",
+          "name": "Image reveal slider",
+          "description": "An example of creating an interactive image comparison slider with Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/infinite-loading",
+          "name": "Infinite loading",
+          "description": "An example of creating an infinite loading list with staggered animations in Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/ios-app-folder",
+          "name": "iOS App Folder",
+          "description": "An iOS-style app folder that expands to reveal apps inside, using Motion for React's layout animations and AnimatePresence."
+        },
+        {
+          "uri": "motion://examples/react/ios-pointer",
+          "name": "iOS pointer animation",
+          "description": "An example of making the iOS pointer animation using Motion+ Cursor's magnetic snapping. Motion+ Cursor is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/react/ios-slider",
+          "name": "iOS slider",
+          "description": "An example of recreating the iOS slider using Motion for React. This example uses useTransform to map input to slider state, and slider state to pull, squish and squash animations. It uses React'setModal onFocus and onBlur to set up keyboard-accessible inputs, with Motion's whileFocus prop to animate a custom focus indicator."
+        },
+        {
+          "uri": "motion://examples/react/keyframes",
+          "name": "Keyframes",
+          "description": "An example of animating an element using keyframes with Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/keyframes-wildcards",
+          "name": "Keyframe wildcards",
+          "description": "An example of using Motion for React's keyframe wildcards to create interruptible keyframe animations. "
+        },
+        {
+          "uri": "motion://examples/react/layout-animation",
+          "name": "Layout animation",
+          "description": "An example of animating a layout change using Motion for React's simple layout prop."
+        },
+        {
+          "uri": "motion://examples/react/line-graph",
+          "name": "Line graph",
+          "description": "An SVG line graph that uses Cursor and AnimateNumber to display changes in data points as an animated cursor annotation."
+        },
+        {
+          "uri": "motion://examples/react/loading-circle-spinner",
+          "name": "Loading: Circle spinner",
+          "description": "An example of creating a circle spinner loading animation with Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/loading-fill-text",
+          "name": "Fill text",
+          "description": "An example of creating a text fill loading animation with Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/loading-jumping-dots",
+          "name": "Loading: Jumping dots",
+          "description": "An example of creating a jumping dots loading animation with Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/loading-line-reveal",
+          "name": "Loading overlay",
+          "description": "An example of creating a line reveal loading animation with clipPath in Motion for React"
+        },
+        {
+          "uri": "motion://examples/react/loading-progress-bar",
+          "name": "Loading progress bar",
+          "description": "An example of creating a progress bar loading animation with Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/loading-ripple",
+          "name": "Loading ripple",
+          "description": "An example of creating a ripple loading animation with Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/loading-three-dots-pulse",
+          "name": "Loading: Pulse dots",
+          "description": "An example of creating a pulsing dots loading animation with Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/magnetic-filings",
+          "name": "Magnetic filings",
+          "description": "An example of creating a grid of metal filings that rotate to point towards the cursor position using Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/material-design-ripple",
+          "name": "Material Design: Ripple",
+          "description": "An example of creating a press ripple with Motion for React, inspired by Google Material Design."
+        },
+        {
+          "uri": "motion://examples/react/mega-menu",
+          "name": "Mega Menu",
+          "description": "Animated navigation menu with sliding indicator, spring-driven dropdown, and staggered column reveals"
+        },
+        {
+          "uri": "motion://examples/react/modal",
+          "name": "Modal dialog",
+          "description": "An example of a modal dialog using Motion for React and the HTML <dialog /> element. This example uses a custom useDialog hook to manage React's declarative API with the dialog HTML element's imperative setModal and close API. It also provides a useClickOutside hook to check when the document has been clicked outside the modal dialog to close it."
+        },
+        {
+          "uri": "motion://examples/react/modal-shared-layout",
+          "name": "Modal: Shared layout",
+          "description": "A modal example demonstrating shared layout animations between a grid of items and a fullscreen modal using Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/motion-path",
+          "name": "Motion along a path",
+          "description": "An example of animating an element along a path using Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/multi-state-badge",
+          "name": "Multi state badge",
+          "description": "A badge that can be in multiple states, such as processing, success, or error."
+        },
+        {
+          "uri": "motion://examples/react/multifollow-pointer-with-spring",
+          "name": "Drag with spring follow",
+          "description": "An example of making multiple elements follow the pointer on drag, using Motion for React's useSpring hook."
+        },
+        {
+          "uri": "motion://examples/react/notifications-list",
+          "name": "Toast: Notifications list",
+          "description": "An example of animating a list of animations as they're added and removed, using Motion for React's layout animations."
+        },
+        {
+          "uri": "motion://examples/react/notifications-stack",
+          "name": "iOS Notifications stack",
+          "description": "A iOS inspired notifications stack using Motion for React's variants."
+        },
+        {
+          "uri": "motion://examples/react/number-counter",
+          "name": "Number counter",
+          "description": "An example of using AnimateNumber to animate numbers. AnimateNumber is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/react/number-engagement-stats",
+          "name": "Engagement stats",
+          "description": "An example of using AnimateNumber to animate numbers on a social media engagement bar. AnimateNumber is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/react/number-formatting",
+          "name": "Number formatting",
+          "description": "An example of AnimateNumber's formatting options, including currency, rounding, and more. AnimateNumber is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/react/number-price-switcher",
+          "name": "Price switcher",
+          "description": "An example of using AnimateNumber to animate a price between monthly and yearly. AnimateNumber is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/react/number-radix-slider",
+          "name": "Radix: Slider with AnimateNumber",
+          "description": "An example of using AnimateNumber and Radix Slider to animate numbers to label a slider input. AnimateNumber is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/react/number-trend",
+          "name": "Number trend",
+          "description": "An example of using AnimateNumber's trend prop to control spin direction. AnimateNumber is exclusive to Motion+ members."
+        },
+        {
+          "uri": "motion://examples/react/parallax",
+          "name": "Parallax",
+          "description": "An example of creating a parallax effect using Motion for React's useScroll hook."
+        },
+        {
+          "uri": "motion://examples/react/path-drawing",
+          "name": "Path drawing",
+          "description": "An example of animating a SVG path to make a path drawing effect, using Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/path-morphing",
+          "name": "Path morphing",
+          "description": "An example of creating smooth SVG path morphing animations with Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/radial-menu",
+          "name": "Radial Menu",
+          "description": "A circular radial menu where options fan out from a central button with staggered spring animations."
+        },
+        {
+          "uri": "motion://examples/react/radix-accordion",
+          "name": "Radix: Accordion",
+          "description": "An accordion component with smooth height animations using Radix UI and Motion"
+        },
+        {
+          "uri": "motion://examples/react/radix-checkbox",
+          "name": "Radix: Checkbox",
+          "description": "A checkbox with path line animation for the tick using Radix UI and Motion"
+        },
+        {
+          "uri": "motion://examples/react/radix-context-menu",
+          "name": "Radix: Context Menu",
+          "description": "A context menu with smooth animations using Radix UI and Motion. Note: This example doesn't use AnimatePresence to add exit animations because ContextMenu.Root doesn't support controlled state. We need access to this state for AnimatePresence to conditionally render the children."
+        },
+        {
+          "uri": "motion://examples/react/radix-dialog",
+          "name": "Radix: Dialog",
+          "description": "A dialog component with overlay and content animations using Radix UI and Motion"
+        },
+        {
+          "uri": "motion://examples/react/radix-dropdown",
+          "name": "Radix: Dropdown Menu",
+          "description": "A dropdown menu with smooth animations using Radix UI and Motion"
+        },
+        {
+          "uri": "motion://examples/react/radix-progress",
+          "name": "Radix: Progress",
+          "description": "An example of animating the Radix Progress component using Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/radix-radio-group",
+          "name": "Radix: Radio Group",
+          "description": "An example of animating the Radix Radio Group component using Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/radix-select",
+          "name": "Radix: Select",
+          "description": "An example of animating the Radix Select component using Motion for React. Note that because Select doesn't support forceMount, it's impossible to create exit animations on select."
+        },
+        {
+          "uri": "motion://examples/react/radix-switch",
+          "name": "Radix: Switch",
+          "description": "An example of animating the Radix Switch component using Motion for React. This examples uses CSS variables, spring and layout animations to animate the switch by switching justify-content."
+        },
+        {
+          "uri": "motion://examples/react/radix-tabs",
+          "name": "Radix: Tabs",
+          "description": "An example of animating the Radix Tabs component using Motion for React. It uses layout animations to animate the height of the container."
+        },
+        {
+          "uri": "motion://examples/react/radix-toast",
+          "name": "Radix: Toast",
+          "description": "An example of animating the Radix Toast component using Motion for React. It uses spring animations and AnimatePresence to provide exit animations for the toast dialog."
+        },
+        {
+          "uri": "motion://examples/react/radix-toggle-group",
+          "name": "Radix: Toggle Group",
+          "description": "An example of animating the Radix Toggle Group component using Motion for React. It uses shared layout animations and CSS mix blend modes to create an animated selected effect."
+        },
+        {
+          "uri": "motion://examples/react/radix-toolbar",
+          "name": "Radix: Toolbar",
+          "description": "An example of animating the Radix Toolbar component using Motion for React. The Radix toolbar can be tabbed to, with using arrow keys to move between items."
+        },
+        {
+          "uri": "motion://examples/react/radix-tooltip",
+          "name": "Radix: Tooltip",
+          "description": "An example of animating the Radix Tooltip component using Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/reorder-items",
+          "name": "Reorder animation",
+          "description": "An example of animating when items are reordered, using Motion for React's layout prop."
+        },
+        {
+          "uri": "motion://examples/react/rotate",
+          "name": "Rotate",
+          "description": "An example of animation the rotation of an element with Motion for React"
+        },
+        {
+          "uri": "motion://examples/react/scramble-text",
+          "name": "Scramble text",
+          "description": "Text that scrambles through random characters when transitioning between words using the ScrambleText component."
+        },
+        {
+          "uri": "motion://examples/react/scramble-text-hover",
+          "name": "Scramble text: Hover",
+          "description": "Text that scrambles through random characters on hover using the ScrambleText component."
+        },
+        {
+          "uri": "motion://examples/react/scramble-text-stagger-center",
+          "name": "Scramble text: Stagger from center",
+          "description": "Text that scrambles from the center outward on hover using ScrambleText with stagger delay."
+        },
+        {
+          "uri": "motion://examples/react/scroll-container",
+          "name": "Element scroll-linked animation",
+          "description": "An example of a scroll-linked animation using a specific element's scroll position using Motion for React's useScroll hook."
+        },
+        {
+          "uri": "motion://examples/react/scroll-hide-header",
+          "name": "Scroll Direction: Hide Header",
+          "description": "A sticky header that hides when scrolling down and reappears when scrolling up. Uses useMotionValueEvent to detect scroll direction."
+        },
+        {
+          "uri": "motion://examples/react/scroll-highlight",
+          "name": "Scroll highlight",
+          "description": "An example of creating a scrollable list of items where the item in the center of the view is highlighted, using the `useInView` hook and the `animate` function in Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/scroll-horizontal",
+          "name": "Scroll Horizontal Gallery",
+          "description": "A horizontal gallery that scrolls sideways as you scroll down. Uses sticky positioning with scroll-linked x translation."
+        },
+        {
+          "uri": "motion://examples/react/scroll-image-reveal",
+          "name": "Scroll Image Reveal",
+          "description": "Images reveal with a clip-path curtain effect as you scroll. Uses useScroll with element targeting and useTransform for clipPath and scale."
+        },
+        {
+          "uri": "motion://examples/react/scroll-linked",
+          "name": "Scroll-linked animations",
+          "description": "An example of linking an animation to scroll using Motion for React's useScroll hook."
+        },
+        {
+          "uri": "motion://examples/react/scroll-linked-with-spring",
+          "name": "Scroll-linked spring animation",
+          "description": "An example of linking an animation to scroll using Motion for React's useScroll hook and smoothing it with useSpring."
+        },
+        {
+          "uri": "motion://examples/react/scroll-text-lines",
+          "name": "Scroll Text Lines",
+          "description": "Editorial-style text effect with multiple lines moving horizontally at different speeds as you scroll. Uses Ticker for seamless infinite text."
+        },
+        {
+          "uri": "motion://examples/react/scroll-track-element-in-viewport",
+          "name": "Track element within viewport",
+          "description": "An example of tracking an element within the viewport using Motion for React's useScroll hook."
+        },
+        {
+          "uri": "motion://examples/react/scroll-triggered",
+          "name": "Scroll-triggered animations",
+          "description": "An example of triggering an animation when an element enters or leaves the viewport using Motion for React's whileInView prop."
+        },
+        {
+          "uri": "motion://examples/react/scroll-velocity-linked-offset",
+          "name": "Scroll velocity: 3D planes",
+          "description": "A 3D carousel with scroll velocity-linked wave effect using Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/scroll-zoom-hero",
+          "name": "Scroll Zoom Hero",
+          "description": "An immersive hero section where the background image scales up, blurs, and fades as you scroll. Creates a dramatic entry effect."
+        },
+        {
+          "uri": "motion://examples/react/shared-layout-animation",
+          "name": "Shared layout animation",
+          "description": "An example of a shared layout animation, where two elements are animated from one to the other, using Motion for React's simple layoutId prop."
+        },
+        {
+          "uri": "motion://examples/react/sheet-modal",
+          "name": "Sheet Modal",
+          "description": "A draggable bottom sheet with spring physics, staggered content animations, and swipe-to-dismiss."
+        },
+        {
+          "uri": "motion://examples/react/smooth-tabs",
+          "name": "Smooth tabs",
+          "description": "A set of tabs that trigger a smooth transition between different views."
+        },
+        {
+          "uri": "motion://examples/react/split-text",
+          "name": "Split text",
+          "description": "An example of creating a text reveal animation with split text in Motion for React"
+        },
+        {
+          "uri": "motion://examples/react/split-text-scatter",
+          "name": "Scatter text",
+          "description": "An example of creating a scatter text animation with split text in Motion for React"
+        },
+        {
+          "uri": "motion://examples/react/split-text-wavy",
+          "name": "Wavy text",
+          "description": "An example of creating a wavy text animation with split text in Motion for React"
+        },
+        {
+          "uri": "motion://examples/react/staggered-grid",
+          "name": "Physical stagger",
+          "description": "An example of animating elements with a delay staggered by physical distance."
+        },
+        {
+          "uri": "motion://examples/react/state-updates",
+          "name": "Animate state",
+          "description": "An example of animating in response to state changes using Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/swipe-actions",
+          "name": "Swipe actions",
+          "description": "iOS-style swipe actions where UI elements and animations respond dynamically to swipe progress. Actions trigger via taps or full swipes (for primary actions). A modern, space-efficient alternative to dropdown menus that keeps actions hidden behind the main item until revealed by a swipe gesture."
+        },
+        {
+          "uri": "motion://examples/react/tab-select",
+          "name": "Tab select",
+          "description": "An example of using making a tab select component with Motion for React's shared layout animations. Because it uses onTap and whileFocus, it's keyboard-accessible by default. Try tabbing between the options and hitting Enter."
+        },
+        {
+          "uri": "motion://examples/react/text-reveal",
+          "name": "Reveal text effect",
+          "description": "An example of revealing text on hover using flexbox and Motion for React's layout animations."
+        },
+        {
+          "uri": "motion://examples/react/ticker",
+          "name": "Ticker",
+          "description": "An example of an animated list of items using the Motion+ Ticker component for React."
+        },
+        {
+          "uri": "motion://examples/react/ticker-cursor",
+          "name": "Ticker: Cursor",
+          "description": "An example of creating a custom cursor that combines the Motion+ Ticker and Cursor components."
+        },
+        {
+          "uri": "motion://examples/react/ticker-draggable",
+          "name": "Ticker: Draggable",
+          "description": "An example of an draggable list of items using the Motion+ Ticker component for React."
+        },
+        {
+          "uri": "motion://examples/react/ticker-keyboard-navigation",
+          "name": "Ticker: Keyboard navigation",
+          "description": "An example of a Motion+ Ticker component for React containing focusable items. Tab to the ticker to select the first item, then use the arrow keys to navigate through the ticker."
+        },
+        {
+          "uri": "motion://examples/react/ticker-overflow",
+          "name": "Ticker: Overflow",
+          "description": "An example of an animated list of items using the Motion+ Ticker component for React. This example sets the overflow prop, which allows the ticker items to visually extend outside their layout. This makes it easier to embed a ticker within a longer document, but have the ticker effect extend out to the edges of the screen."
+        },
+        {
+          "uri": "motion://examples/react/ticker-rtl",
+          "name": "Ticker: RTL",
+          "description": "An example of Motion+ Ticker component for React with RTL support."
+        },
+        {
+          "uri": "motion://examples/react/ticker-scroll",
+          "name": "Ticker: Scroll",
+          "description": "An example of a scroll-driven ticker animation Motion+ Ticker component for React."
+        },
+        {
+          "uri": "motion://examples/react/ticker-text-hover-effect",
+          "name": "Ticker: Text hover effect",
+          "description": "An example of creating a text hover effect that replaces the label with a live ticker, using Motion+ Ticker."
+        },
+        {
+          "uri": "motion://examples/react/ticker-use-ticker-item",
+          "name": "Ticker: useTickerItem",
+          "description": "An example of animating ticker items based on their current offset using the Motion+ Ticker's useTickerItem hook for React."
+        },
+        {
+          "uri": "motion://examples/react/ticker-y-axis",
+          "name": "Ticker: Vertical scrolling",
+          "description": "An example of a vertical scrolling ticker using the Motion+ Ticker component for React."
+        },
+        {
+          "uri": "motion://examples/react/tilt-card",
+          "name": "Tilt card",
+          "description": "A card that tilts based on pointer position using Motion for React's useSpring hook."
+        },
+        {
+          "uri": "motion://examples/react/todo-list",
+          "name": "To-do list",
+          "description": "A draggable to-do list with animated checkboxes and strikethrough effects using Motion for React's Reorder component."
+        },
+        {
+          "uri": "motion://examples/react/transition",
+          "name": "Transition options",
+          "description": "An example of setting transition options in Motion for React."
+        },
+        {
+          "uri": "motion://examples/react/typewriter",
+          "name": "Typewriter",
+          "description": "An example of a React typewriter animation using Motion for React's Typewriter component."
+        },
+        {
+          "uri": "motion://examples/react/typewriter-change-content",
+          "name": "Typewriter: Change Content",
+          "description": "An example of a typewriter animation using Motion for React's Typewriter component. In this demo, when the content changes, the Typewriter uses a natural typing animation to animate to the latest value."
+        },
+        {
+          "uri": "motion://examples/react/typewriter-explode",
+          "name": "Typewriter: Exploding Countdown",
+          "description": "An example of a typewriter animation using Motion for React's Typewriter component. In this demo, the Typewriter uses a natural typing animation to animate to the latest value, and then explodes the text using splitText."
+        },
+        {
+          "uri": "motion://examples/react/typewriter-natural-typing",
+          "name": "Typewriter: Natural Typing",
+          "description": "An example of a React typewriter animation using Motion for React's Typewriter component. In this demo, the Typewriter uses a natural typing animation that's based on the currently-typed word length, position in word, uncommon character combinations and punctuation."
+        },
+        {
+          "uri": "motion://examples/react/use-animation-frame",
+          "name": "Spinning 3D cube",
+          "description": "An example of using Motion for React's useAnimationFrame hook to animate a 3D cube."
+        },
+        {
+          "uri": "motion://examples/react/use-presence-data",
+          "name": "usePresenceData",
+          "description": "An example of using usePresenceData to pass custom data through AnimatePresence to exiting elements."
+        },
+        {
+          "uri": "motion://examples/react/use-time",
+          "name": "useTime",
+          "description": "An example of using the useTime hook to animate an element at a constant speed."
+        },
+        {
+          "uri": "motion://examples/react/use-transform",
+          "name": "Value transform & path drawing",
+          "description": "An example of linking SVG path length to a drag gesture using Motion for React's easy useTransform hook."
+        },
+        {
+          "uri": "motion://examples/react/variants",
+          "name": "Variants",
+          "description": "An example of orchestrating animation sequences using Motion for React's variants."
+        },
+        {
+          "uri": "motion://examples/react/warp-overlay",
+          "name": "Warp overlay",
+          "description": "An example of creating a warp overlay effect with Motion for React."
+        },
+        {
+          "uri": "motion://docs/react/animate-view",
+          "name": "React: AnimateView",
+          "description": "A component for using View Transitions with Motion. Useful for performing Next.js page transitions."
+        },
+        {
+          "uri": "motion://docs/vue/animate-number",
+          "name": "Vue: AnimateNumber",
+          "description": "Create beautiful number animations like countdowns with AnimateNumber and Motion. Leverages Motion's layout animations and transitions. Lightweight at just 2.5kb."
+        },
+        {
+          "uri": "motion://docs/vue/carousel",
+          "name": "Vue: Carousel",
+          "description": "A production-ready Vue carousel featuring infinite scrolling, composable controls, and animated pagination. Lightweight, fully accessible, and supports touch, wheel, and keyboard navigation."
+        },
+        {
+          "uri": "motion://docs/vue/cursor",
+          "name": "Vue: Cursor",
+          "description": "Create custom cursors and follow-along effects in Vue with Motion+ Cursor. It auto-adapts to links, text, & buttons. Style with CSS, animate with Motion."
+        },
+        {
+          "uri": "motion://docs/vue/ticker",
+          "name": "Vue: Ticker",
+          "description": "Create infinitly-scrolling ticker and marquee effects with Motion for Vue's Ticker component. Looping, dragging and scrolling animations are all possible with this lightweight and performant component."
+        },
+        {
+          "uri": "motion://docs/vue/typewriter",
+          "name": "Vue: Typewriter",
+          "description": "A customizable typewriter animation component for Vue that creates realistic typing animations with human-like variance, stylable cursors and accessibility."
+        },
+        {
+          "uri": "motion://docs/react/animate-activity",
+          "name": "React: AnimateActivity",
+          "description": "AnimateActivity is Motion component for React that orchestrates enter and exit animations with React's Activity component. It handles exit animations before an element is hidden, preserving component and DOM state."
+        },
+        {
+          "uri": "motion://docs/react/animate-number",
+          "name": "React: AnimateNumber",
+          "description": "Create beautiful number animations like countdowns with AnimateNumber and Motion. Leverages Motion's layout animations and transitions. Lightweight at just 2.5kb."
+        },
+        {
+          "uri": "motion://docs/react/carousel",
+          "name": "React: Carousel",
+          "description": "A production-ready React carousel featuring infinite scrolling, composable controls, and animated pagination. Lightweight, fully accessible, and supports touch, wheel, and keyboard navigation."
+        },
+        {
+          "uri": "motion://docs/react/cursor",
+          "name": "React: Cursor",
+          "description": "Create custom cursors and follow-along effects in React with Motion+ Cursor. It auto-adapts to links, text, & buttons. Style with CSS, animate with Motion."
+        },
+        {
+          "uri": "motion://docs/react/ticker",
+          "name": "React: Ticker",
+          "description": "Create infinitely-scrolling ticker and marquee effects with Motion for React's Ticker component. Looping, dragging and scrolling animations are all possible with this lightweight and performant component."
+        },
+        {
+          "uri": "motion://docs/js/animate-view",
+          "name": "JavaScript: View animations",
+          "description": "Discover Motion's animateView() for seamless animations between different views or layouts. Learn how it simplifies layout changes, shared element transitions, and page effects using the browser's native View Transition API. Explore its cleaner API, spring animation support, and interruption handling, while noting its current alpha status."
+        },
+        {
+          "uri": "motion://docs/js/split-text",
+          "name": "JavaScript: splitText",
+          "description": "Learn how to use the splitText() function to break down text content into individual characters, words, and lines, enabling granular text animations. Understand how to target these split components with CSS classes, customize splitting behavior, and troubleshoot common issues with custom fonts or existing HTML tags."
+        }
+      ],
+      "cachedAt": 1773825812739
+    }
+  }
+}

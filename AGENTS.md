@@ -57,7 +57,7 @@ cmux tree --json | jq -r '[.windows[].workspaces[] | select(.selected) | .panes[
 Run a command and read output:
 ```bash
 cmux send --surface <ref> "command\n"
-sleep <appropriate-wait>
+sleep <appropriate-wait> - less than you think. Most commands only take 5 seconds or less
 cmux read-screen --surface <ref> --lines 40
 ```
 
