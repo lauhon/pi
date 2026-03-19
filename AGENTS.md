@@ -31,15 +31,50 @@
 
 **NEVER run non-terminating commands directly** (dev servers, watchers, docker, tail -f, etc.) — they block the agent.
 
-Use **cmux** to run them in a separate split:
+### Workspace Layout
 
+Every project workspace follows this standard layout:
+
+| Tab | Name | Purpose |
+|-----|------|---------|
+| Pane 1 | **Editor** | nvim — don't send commands here |
+| Pane 2, Tab 1 | **Terminal** | Running commands (tests, builds, lint, dev servers) |
+| Pane 2, Tab 2 | **Browser** | Preview tab |
+| Pane 3 | **π** | Pi agent terminal (you are here) |
+
+### Command Execution Rules
+
+- **Project execution commands** (test, build, lint, typecheck, dev servers — anything that runs project code) → Run via cmux in the **Terminal** tab
+- **Read-only/utility commands** (grep, find, ls, jq, cat, git status, file reads) → Run directly via `bash` tool
+
+### How to Use the Terminal Tab
+
+Discover the Terminal surface ref:
 ```bash
-cmux new-split right                          # create a split
-cmux tree --json                              # find the surface ref
-cmux send --surface surface:N "pnpm dev\n"    # run command there
+cmux tree --json | jq -r '[.windows[].workspaces[] | select(.selected) | .panes[].surfaces[] | select(.title == "Terminal")] | first | .ref'
+```
+
+Run a command and read output:
+```bash
+cmux send --surface <ref> "command\n"
+sleep <appropriate-wait>
+cmux read-screen --surface <ref> --lines 40
 ```
 
 For the full cmux API (notifications, sidebar status, keys, etc.), you can load the `cmux` skill if you need to.
+
+## Browser Automation — Use cmux browser
+
+**Use `cmux browser` for all browser interactions.** Do NOT use playwright-cli.
+
+```bash
+cmux browser open https://example.com          # open URL in browser split
+cmux browser identify                           # find surface ID
+cmux browser surface:N snapshot --interactive   # inspect page state
+cmux browser surface:N screenshot --out /tmp/page.png
+```
+
+For the full browser automation API (clicking, filling, waiting, tabs, state, etc.), load the `cmux-browser` skill if you need to.
 
 ## Git Operations
 
