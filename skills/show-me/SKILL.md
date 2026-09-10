@@ -1,7 +1,5 @@
-
-SKILL.md
 ---
-name: make-it-clear
+name: show-me
 description: Build one slim, self-contained HTML artifact that makes an idea click — a decision, a trade-off, a risk, a process, a system, an unfamiliar concept. The artifact explains the subject itself and never recaps the conversation that produced it. Routes by the shape of the person's confusion rather than the subject matter, and reaches for named explanation frames (Minto, Cynefin, Gigerenzer, Tufte, Roam, Gentner, Meadows) to steer toward a specific way of thinking instead of a generic diagram. Use this whenever someone says "I don't get it", "explain", "show me", "help me decide", "what are my options", "compare these", "walk me through", "is this risky", or has clearly buried the answer in a wall of prose — even if they never ask for a picture. Also use it when a conversation has produced a lot of scattered findings and someone needs to see the whole thing at once.
 ---
  
