@@ -12,23 +12,35 @@ Full docs: https://cmux.com/de/docs/api (note: some commands differ from docs â€
 
 ## Core Pattern: Long-Running Commands
 
+Prefer the existing surface titled `Terminal`. Create a separate split only when the user needs a dedicated visible monitor or the existing Terminal is occupied.
+
 ```bash
-# 1. Create a split
-cmux new-split right          # or: down, left, up
+# 1. Find the existing Terminal surface
+TERMINAL_REF=$(cmux tree --json | jq -r \
+  '[.windows[].workspaces[] | select(.selected) | .panes[].surfaces[] | select(.title == "Terminal")] | first | .ref')
 
-# 2. Find the new surface ref
-cmux tree --json              # shows full layout with surface refs (surface:N)
+# 2. Send the command with an explicit working directory
+cmux send --surface "$TERMINAL_REF" "cd /absolute/project/path && npm run dev\n"
 
-# 3. Send command to that surface
-cmux send --surface surface:4 "npm run dev\n"
+# 3. Read bounded output when useful
+cmux read-screen --surface "$TERMINAL_REF" --lines 40
 
-# 4. Read output from a surface
-cmux read-screen --surface surface:4
-
-# 5. Send more input or keys later
-cmux send --surface surface:4 "some input\n"
-cmux send-key --surface surface:4 enter
+# 4. Send more input or keys later
+cmux send --surface "$TERMINAL_REF" "some input\n"
+cmux send-key --surface "$TERMINAL_REF" enter
 ```
+
+If a separate surface is needed, create it, locate its new ref with `cmux tree --json`, give it a clear title if supported, and verify that it is visible before telling the user where to look.
+
+### Long-job discipline
+
+- Launch a long job once; do not keep an agent turn open with repeated `sleep` and `read-screen` loops.
+- Redirect verbose output to a log and print concise phase/progress/error lines.
+- Use `cmux set-status`, `set-progress`, logs, or `notify` for completion/failure when practical.
+- Read bounded output at meaningful checkpoints or when the user asks for status.
+- Always include an absolute `cd` when work may span repositories or terminal state is uncertain.
+- If the command needs complex quoting, SQL, JSON, or multiple shell phases, write a temporary script/payload first and send one simple command to the Terminal.
+- Clear sidebar status/progress after completion.
 
 ## Important: Actual CLI vs Docs
 

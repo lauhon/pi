@@ -1,0 +1,11 @@
+{
+  "defaultProvider": "github-copilot",
+  "defaultModel": "gpt-5.6-terra",
+  "defaultThinkingLevel": "medium",
+  "showCacheMissNotices": true,
+  "compaction": {
+    "enabled": true,
+    "reserveTokens": 800000,
+    "keepRecentTokens": 30000
+  }
+}

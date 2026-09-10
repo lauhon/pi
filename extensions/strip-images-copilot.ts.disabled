@@ -1,0 +1,79 @@
+/**
+ * strip-images-copilot
+ *
+ * GitHub Copilot's API rejects requests containing image content (vision is not
+ * supported via the copilot proxy). When you start a session with Anthropic
+ * (e.g. Opus) and attach images, then switch to a github-copilot model with
+ * Ctrl+P / `/model`, those images are still in the session and the next request
+ * will fail.
+ *
+ * This extension intercepts the `context` event (fires before each LLM call,
+ * with a deep copy of the messages) and, *only* when the active model's
+ * provider is `github-copilot`, replaces every ImageContent block with a short
+ * text placeholder. The session entries themselves are not mutated, so
+ * switching back to Anthropic restores full vision.
+ */
+
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+
+const COPILOT_PROVIDER = "github-copilot";
+const PLACEHOLDER_TEXT = "[image omitted: github-copilot does not support vision]";
+
+type AnyContent = { type: string; [k: string]: unknown };
+
+function stripImagesFromContent(
+	content: string | AnyContent[] | undefined,
+): { content: string | AnyContent[] | undefined; stripped: number } {
+	if (!content || typeof content === "string") return { content, stripped: 0 };
+	let stripped = 0;
+	const next: AnyContent[] = content.map((block) => {
+		if (block && block.type === "image") {
+			stripped++;
+			return { type: "text", text: PLACEHOLDER_TEXT };
+		}
+		return block;
+	});
+	return { content: next, stripped };
+}
+
+export default function (pi: ExtensionAPI) {
+	pi.on("context", async (event, ctx) => {
+		if (ctx.model?.provider !== COPILOT_PROVIDER) return;
+
+		let total = 0;
+		const messages = event.messages.map((msg: any) => {
+			// user, toolResult, and custom messages can carry images
+			if (
+				msg?.role === "user" ||
+				msg?.role === "toolResult" ||
+				msg?.role === "custom"
+			) {
+				const { content, stripped } = stripImagesFromContent(msg.content);
+				if (stripped === 0) return msg;
+				total += stripped;
+				return { ...msg, content };
+			}
+			return msg;
+		});
+
+		if (total > 0) {
+			ctx.ui.setStatus(
+				"strip-images-copilot",
+				`stripped ${total} image${total === 1 ? "" : "s"} (copilot)`,
+			);
+			return { messages };
+		}
+		ctx.ui.setStatus("strip-images-copilot", "");
+	});
+
+	pi.on("model_select", async (event, ctx) => {
+		if (event.model.provider === COPILOT_PROVIDER) {
+			ctx.ui.notify(
+				"github-copilot active: images will be stripped from LLM context",
+				"info",
+			);
+		} else {
+			ctx.ui.setStatus("strip-images-copilot", "");
+		}
+	});
+}

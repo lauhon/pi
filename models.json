@@ -1,0 +1,25 @@
+{
+  "providers": {
+    "github-copilot": {
+      "headers": {
+        "Editor-Version": "vscode/1.99.0",
+        "Copilot-Integration-Id": "vscode-chat"
+      },
+      "models": [
+        {
+          "id": "claude-sonnet-5",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 200000,
+          "maxTokens": 64000,
+          "cost": {
+            "input": 3,
+            "output": 15,
+            "cacheRead": 0.3,
+            "cacheWrite": 3.75
+          }
+        }
+      ]
+    }
+  }
+}

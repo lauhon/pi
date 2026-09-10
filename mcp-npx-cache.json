@@ -3,7 +3,7 @@
   "entries": {
     "[\"npx\",\"shadcn@latest\",\"mcp\"]": {
       "resolvedBin": "/Users/laurenz/.npm/_npx/d66c5096c7023bfb/node_modules/shadcn/dist/index.js",
-      "resolvedAt": 1773825342897,
+      "resolvedAt": 1778683357838,
       "packageVersion": "4.0.5",
       "isJs": true
     },

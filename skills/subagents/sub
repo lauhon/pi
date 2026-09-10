@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+# sub — spawn and manage headless pi subagents in tmux (fresh context, cheap models)
+set -euo pipefail
+
+SOCKET="pi-sub"
+RUNS_DIR="${PI_SUB_RUNS:-$HOME/.pi/pi-sub-runs}"
+PI_BIN="${PI_BIN:-$HOME/.volta/bin/pi}"
+mkdir -p "$RUNS_DIR"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  sub spawn <name> [opts] <task text>     Spawn a subagent (async, detached tmux)
+  sub spawn <name> [opts] -f <task-file>
+  sub list                                List children and their status
+  sub wait [name...] [--timeout <secs>]   Block until children finish (default: all running)
+  sub out <name>                          Print a child's output (latest turn)
+  sub peek <name>                         Tail a running child's output so far
+  sub resume <name> <message>             Send a follow-up turn (same session, async)
+  sub kill <name>                         Kill a running child
+  sub clean [--all]                       Remove run dirs older than 7 days (or all)
+
+Spawn options:
+  --model <provider/id>   Model (default: github-copilot/claude-haiku-4.5)
+  --cwd <dir>             Working directory for the child (default: current dir)
+  --tools <list>          Restrict tools, e.g. read,grep,find,ls for read-only
+  --thinking <level>      off|minimal|low|medium|high (default: off)
+  --ext <path>            Load a specific extension (repeatable, discovery stays off)
+EOF
+  exit 1
+}
+
+sanitize() { echo "$1" | tr -c 'a-zA-Z0-9_-' '-' | sed 's/-*$//'; }
+
+# owned <dir> -> success if the run belongs to this session.
+# Inside a pi session, PI_SUB_PARENT is set by the subagents-monitor extension
+# and every command is scoped to that session's runs. In a bare terminal
+# (PI_SUB_PARENT unset) all runs are visible.
+owned() {
+  [ -z "${PI_SUB_PARENT:-}" ] && return 0
+  [ "$(cat "$1/parent" 2>/dev/null)" = "$PI_SUB_PARENT" ]
+}
+
+# resolve <name> -> most recent owned run dir matching *-<name>
+resolve() {
+  local name dir found=""
+  name=$(sanitize "$1")
+  for dir in $(ls -d "$RUNS_DIR"/*-"$name" 2>/dev/null | sort); do
+    owned "$dir" && found=$dir
+  done
+  [ -n "$found" ] || { echo "error: no run found for '$1' in this session" >&2; exit 1; }
+  echo "$found"
+}
+
+session_of() { basename "$1"; }
+
+latest_n() { # highest turn index in a run dir (1 = initial)
+  local dir=$1 n=1
+  while [ -e "$dir/task-$((n + 1)).md" ]; do n=$((n + 1)); done
+  echo "$n"
+}
+
+launch() { # launch turn: dir, n, extra pi args...
+  local dir=$1 n=$2; shift 2
+  local cwd model thinking session q=""
+  cwd=$(cat "$dir/cwd"); model=$(cat "$dir/model"); thinking=$(cat "$dir/thinking")
+  session=$(session_of "$dir")
+  local -a cmd=("$PI_BIN" -p --model "$model" --no-extensions --no-skills
+    --thinking "$thinking" --session "$dir/session.jsonl")
+  if [ -s "$dir/tools" ]; then cmd+=(--tools "$(cat "$dir/tools")"); fi
+  while IFS= read -r ext; do [ -n "$ext" ] && cmd+=(-e "$ext"); done < "$dir/exts"
+  cmd+=("@$dir/task-$n.md")
+  local arg; for arg in "${cmd[@]}"; do q+=$(printf ' %q' "$arg"); done
+  printf '%s' "${PI_SUB_PARENT:-}" > "$dir/parent"
+  rm -f "$dir/exit-code-$n"
+  tmux -L "$SOCKET" new-session -d -s "$session" \
+    "cd $(printf '%q' "$cwd") &&$q > $(printf '%q' "$dir/out-$n.md") 2>&1; echo \$? > $(printf '%q' "$dir/exit-code-$n")"
+  echo "spawned: $session (model=$model, turn=$n)"
+  echo "dir:     $dir"
+}
+
+cmd_spawn() {
+  [ $# -ge 1 ] || usage
+  local name model="github-copilot/claude-haiku-4.5" cwd="$PWD" tools="" thinking="off"
+  local task="" taskfile="" exts=()
+  name=$(sanitize "$1"); shift
+  [ -n "$name" ] || { echo "error: empty name" >&2; exit 1; }
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --model) model=$2; shift 2 ;;
+      --cwd) cwd=$(cd "$2" && pwd); shift 2 ;;
+      --tools) tools=$2; shift 2 ;;
+      --thinking) thinking=$2; shift 2 ;;
+      --ext) exts+=("$2"); shift 2 ;;
+      -f) taskfile=$2; shift 2 ;;
+      *) task="$task$1 "; shift ;;
+    esac
+  done
+  local dir="$RUNS_DIR/$(date +%Y%m%d-%H%M%S)-$name"
+  [ ! -e "$dir" ] || dir="$dir-$RANDOM"
+  mkdir -p "$dir"
+  if [ -n "$taskfile" ]; then cp "$taskfile" "$dir/task-1.md"
+  elif [ -n "$task" ]; then printf '%s\n' "$task" > "$dir/task-1.md"
+  else echo "error: no task given" >&2; exit 1; fi
+  printf '%s' "$cwd" > "$dir/cwd"
+  printf '%s' "$model" > "$dir/model"
+  printf '%s' "$thinking" > "$dir/thinking"
+  printf '%s' "$tools" > "$dir/tools"
+  printf '%s\n' "${exts[@]:-}" > "$dir/exts"
+  launch "$dir" 1
+}
+
+status_of() { # dir -> running | done(<code>) | dead
+  local dir=$1 n
+  n=$(latest_n "$dir")
+  if tmux -L "$SOCKET" has-session -t "$(session_of "$dir")" 2>/dev/null; then
+    echo "running"
+  elif [ -f "$dir/exit-code-$n" ]; then
+    echo "done($(cat "$dir/exit-code-$n"))"
+  else
+    echo "dead"
+  fi
+}
+
+cmd_list() {
+  local dir
+  for dir in $(ls -d "$RUNS_DIR"/*/ 2>/dev/null | sort); do
+    dir=${dir%/}
+    owned "$dir" || continue
+    printf '%-45s %-10s turn=%s\n' "$(basename "$dir")" "$(status_of "$dir")" "$(latest_n "$dir")"
+  done
+}
+
+cmd_wait() {
+  local timeout=600 dirs=() name dir waited=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --timeout) timeout=$2; shift 2 ;;
+      *) dirs+=("$(resolve "$1")"); shift ;;
+    esac
+  done
+  if [ ${#dirs[@]} -eq 0 ]; then
+    for dir in $(ls -d "$RUNS_DIR"/*/ 2>/dev/null); do
+      dir=${dir%/}
+      owned "$dir" || continue
+      [ "$(status_of "$dir")" = "running" ] && dirs+=("$dir")
+    done
+  fi
+  [ ${#dirs[@]} -gt 0 ] || { echo "nothing to wait for"; return 0; }
+  while :; do
+    local pending=0
+    for dir in "${dirs[@]}"; do
+      [ "$(status_of "$dir")" = "running" ] && pending=$((pending + 1))
+    done
+    [ "$pending" -eq 0 ] && break
+    [ "$waited" -ge "$timeout" ] && { echo "timeout after ${timeout}s ($pending still running)"; break; }
+    sleep 2; waited=$((waited + 2))
+  done
+  for dir in "${dirs[@]}"; do
+    local n; n=$(latest_n "$dir")
+    printf '%-45s %-10s out: %s\n' "$(basename "$dir")" "$(status_of "$dir")" "$dir/out-$n.md"
+  done
+}
+
+cmd_out() {
+  local dir n
+  dir=$(resolve "$1"); n=$(latest_n "$dir")
+  echo "--- $(basename "$dir") [$(status_of "$dir")] turn=$n ---"
+  cat "$dir/out-$n.md" 2>/dev/null || echo "(no output yet)"
+}
+
+cmd_peek() {
+  local dir n
+  dir=$(resolve "$1"); n=$(latest_n "$dir")
+  echo "--- $(basename "$dir") [$(status_of "$dir")] last 20 lines ---"
+  tail -n 20 "$dir/out-$n.md" 2>/dev/null || echo "(no output yet)"
+}
+
+cmd_resume() {
+  local dir n
+  dir=$(resolve "$1"); shift
+  [ $# -ge 1 ] || { echo "error: no message given" >&2; exit 1; }
+  [ "$(status_of "$dir")" != "running" ] || { echo "error: still running — wait or kill first" >&2; exit 1; }
+  n=$(( $(latest_n "$dir") + 1 ))
+  printf '%s\n' "$*" > "$dir/task-$n.md"
+  launch "$dir" "$n"
+}
+
+cmd_kill() {
+  local dir; dir=$(resolve "$1")
+  tmux -L "$SOCKET" kill-session -t "$(session_of "$dir")" 2>/dev/null \
+    && echo "killed $(basename "$dir")" || echo "not running"
+}
+
+cmd_clean() {
+  if [ "${1:-}" = "--all" ]; then
+    local dir
+    for dir in $(ls -d "$RUNS_DIR"/*/ 2>/dev/null); do
+      dir=${dir%/}
+      owned "$dir" || continue
+      [ "$(status_of "$dir")" = "running" ] || rm -rf "$dir"
+    done
+  else
+    find "$RUNS_DIR" -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} +
+  fi
+  echo "cleaned"
+}
+
+case "${1:-}" in
+  spawn)  shift; cmd_spawn "$@" ;;
+  list)   shift; cmd_list "$@" ;;
+  wait)   shift; cmd_wait "$@" ;;
+  out)    shift; cmd_out "$@" ;;
+  peek)   shift; cmd_peek "$@" ;;
+  resume) shift; cmd_resume "$@" ;;
+  kill)   shift; cmd_kill "$@" ;;
+  clean)  shift; cmd_clean "$@" ;;
+  *) usage ;;
+esac

@@ -2,7 +2,7 @@
   "version": 1,
   "servers": {
     "shadcn": {
-      "configHash": "c62cf600ce2fcdfb43f215fc084fdd8ded3bceeadd493cf470d522cd651602ab",
+      "configHash": "a9cfddc5440e93878053991d3059db234974c3bf1621f21fbd329834b1d1ee66",
       "tools": [
         {
           "name": "get_project_registries",
@@ -157,7 +157,7 @@
         }
       ],
       "resources": [],
-      "cachedAt": 1773825812737
+      "cachedAt": 1778742524235
     },
     "shadcn-studio-mcp": {
       "configHash": "9f03d0c52e55c3ce4aa57590d702631c98d715a4293e4825042e2d55a7d2909d",

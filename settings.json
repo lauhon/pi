@@ -1,9 +1,57 @@
 {
-  "lastChangelogVersion": "0.60.0",
+  "lastChangelogVersion": "0.84.4",
   "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-4.6",
+  "defaultModel": "claude-opus-5",
   "defaultThinkingLevel": "medium",
-  "autoCompact": false,
+  "showCacheMissNotices": true,
+  "compaction": {
+    "enabled": true,
+    "reserveTokens": 800000,
+    "keepRecentTokens": 30000
+  },
   "steeringMode": "one-at-a-time",
-  "followUpMode": "one-at-a-time"
+  "followUpMode": "one-at-a-time",
+  "packages": [
+    "npm:@benvargas/pi-claude-code-use",
+    "npm:pi-web-access",
+    "npm:@hypabolic/pi-hypa"
+  ],
+  "theme": "dark",
+  "subagents": {
+    "disableThinking": true,
+    "agentOverrides": {
+      "scout": {
+        "model": "github-copilot/claude-haiku-4.5",
+        "defaultContext": "fresh"
+      },
+      "planner": {
+        "model": "github-copilot/gpt-5.5",
+        "defaultContext": "fresh"
+      },
+      "worker": {
+        "model": "github-copilot/claude-sonnet-5",
+        "defaultContext": "fresh"
+      },
+      "reviewer": {
+        "model": "github-copilot/gpt-5.5",
+        "defaultContext": "fresh"
+      },
+      "context-builder": {
+        "model": "github-copilot/claude-sonnet-5",
+        "defaultContext": "fresh"
+      },
+      "researcher": {
+        "model": "github-copilot/gemini-3.1-pro-preview",
+        "defaultContext": "fresh"
+      },
+      "delegate": {
+        "model": "github-copilot/claude-haiku-4.5",
+        "defaultContext": "fresh"
+      },
+      "oracle": {
+        "model": "github-copilot/gpt-5.5",
+        "defaultContext": "fresh"
+      }
+    }
+  }
 }
