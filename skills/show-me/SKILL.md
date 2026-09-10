@@ -1,6 +1,8 @@
+
+SKILL.md
 ---
-name: show-me
-description: Make the current topic click by building one slim, self-contained HTML artifact — a decision, a trade-off, a risk, a process, a system, an unfamiliar concept. Routes by the shape of the person's confusion rather than the subject, and reaches for named explanation frames (Minto, Cynefin, Gigerenzer, Tufte, Roam, Gentner, Meadows) to steer toward a specific way of thinking instead of a generic diagram. Use this whenever someone says "I don't get it", "explain", "show me", "help me decide", "what are my options", "compare these", "walk me through", "is this risky", or has clearly buried the answer in a wall of prose — even if they never ask for a picture. Also use it when a conversation has produced a lot of scattered findings and someone needs to see the whole thing at once.
+name: make-it-clear
+description: Build one slim, self-contained HTML artifact that makes an idea click — a decision, a trade-off, a risk, a process, a system, an unfamiliar concept. The artifact explains the subject itself and never recaps the conversation that produced it. Routes by the shape of the person's confusion rather than the subject matter, and reaches for named explanation frames (Minto, Cynefin, Gigerenzer, Tufte, Roam, Gentner, Meadows) to steer toward a specific way of thinking instead of a generic diagram. Use this whenever someone says "I don't get it", "explain", "show me", "help me decide", "what are my options", "compare these", "walk me through", "is this risky", or has clearly buried the answer in a wall of prose — even if they never ask for a picture. Also use it when a conversation has produced a lot of scattered findings and someone needs to see the whole thing at once.
 ---
  
 Make the current topic clear. Skip the preamble, keep prose brief, and pick the smallest thing that makes the point land.
@@ -11,7 +13,27 @@ The form follows the confusion, never the subject. "A trade-off with no clean an
  
 Then, before building anything, check that the visual earns its cost. A sentence beats a diagram; a three-row table beats a chart. Reach for HTML when the point is *spatial, proportional, relational, or comparative* — when the reader would otherwise have to hold several things in their head at once and rotate them.
  
-## 2. Route: confusion → frame → form
+## 2. Build the idea, not the session
+ 
+This is the one rule that matters most, and the one easiest to break without noticing.
+ 
+Your context is a transcript, so the conversation feels like the subject. It isn't. The subject is whatever the conversation was *about* — the mechanism, the trade-off, the risk, the system. Build that. The artifact should read as though the idea existed before anyone discussed it, because it did.
+ 
+**The test: a stranger opens this file, has never read a single message, and still gets it.** Nothing in it should require having been there. If it does, rebuild.
+ 
+Minto's real point is not "answer first" — it's that **the order you figured something out is almost never the order to explain it in.** You got here by ruling things out, circling back, changing your mind. None of that is load-bearing for understanding. Reorganize from scratch around what the reader needs to grasp the thing.
+ 
+Tells that the session has leaked in:
+ 
+- "we", "you asked", "as discussed", "based on our conversation"
+- session chronology: initially / then / after digging in / it turns out
+- options present only because they came up, not because they illuminate the answer
+- a before/after where "before" is just the earlier state of the discussion
+- anything that makes a stranger ask "before what?" or "who's we?"
+- the artifact's structure mirroring the order things were talked about
+Alternatives and dead ends belong in only when a reader independently needs them to understand or trust the answer — and then as a comparison on the merits, stripped of any trace of when they came up.
+ 
+## 3. Route: confusion → frame → form
  
 Invoke the named frame explicitly in your own reasoning. The name is the steering wheel — "structure this as an SCQA" and "structure this clearly" produce very different work.
  
@@ -32,7 +54,7 @@ Invoke the named frame explicitly in your own reasoning. The name is the steerin
  
 You will use one of these, sometimes two. You will not use all of them. When nothing fits, you also know SWOT, fishbone, five whys, pre-mortem, jobs-to-be-done, decision trees, Sankey flows, and Vonnegut's story shapes — reach for them by name.
  
-## 3. Craft rules, in priority order
+## 4. Craft rules, in priority order
  
 These are not taste. They're the findings.
  
@@ -44,7 +66,7 @@ These are not taste. They're the findings.
 6. **Don't repeat the diagram in a caption.** If the visual works, saying the same thing twice adds load rather than reinforcement — especially for someone who already knows the domain.
 Avoid the house style of AI-generated pages: centered everything, purple gradients, uniformly rounded corners, Inter. Those read as machine-made on sight.
  
-## 4. Build it as one file
+## 5. Build it as one file
  
 Write a single self-contained HTML file — all CSS inline, no build step, no npm, no framework. Then open it:
  
@@ -56,6 +78,8 @@ Cost hierarchy, cheapest first: **pure HTML/CSS for quantities and comparisons**
  
 Two notes on that: a CSS-only bar chart is invisible to screen readers, so keep real text in the markup and add `aria-label`. And the Mermaid CDN only works because the file is opened locally — the same file pasted into a sandboxed artifact viewer will block the request, so go pure SVG if it needs to travel.
  
-## 5. Then say almost nothing
+## 6. Then say almost nothing
  
 Put the artifact next to the one or two sentences it supports. Don't narrate what you built, don't list the techniques you considered, don't offer three follow-ups. The whole point is that the picture does the talking.
+ 
+Last check before you hand it over: read the file as a stranger would. If it explains the idea, it's done. If it explains how you got there, start again.
