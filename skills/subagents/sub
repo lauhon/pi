@@ -1,24 +1,66 @@
 #!/usr/bin/env bash
-# sub — spawn and manage headless pi subagents in tmux (fresh context, cheap models)
+# sub — spawn and manage interactive pi subagent children in tmux.
+#
+# See skills/subagents/spec-interactive-children.md. A child is a live pi TUI
+# in a detached tmux session (`-L "$PI_SUB_SOCKET"`), loaded with
+# skills/subagents/beacon/index.ts via -e. sub only ever talks to a live
+# child by writing files under its run dir (inbox/, control/) — it never
+# opens the child's session.jsonl itself.
+#
+# Sourceable: this file can be `source`d for tests (guarded by the
+# BASH_SOURCE check at the bottom). Every external binary is behind an
+# injectable variable (TMUX_BIN / PI_BIN / CMUX_BIN), plus PI_SUB_SOCKET and
+# PI_SUB_RUNS, so tests can substitute fakes and a temp runs dir.
 set -euo pipefail
 
-SOCKET="pi-sub"
-RUNS_DIR="${PI_SUB_RUNS:-$HOME/.pi/pi-sub-runs}"
-PI_BIN="${PI_BIN:-$HOME/.volta/bin/pi}"
-mkdir -p "$RUNS_DIR"
+# ── Injectable seams ─────────────────────────────────────────────────────
+
+: "${TMUX_BIN:=tmux}"
+: "${PI_BIN:=$HOME/.volta/bin/pi}"
+: "${CMUX_BIN:=cmux}"
+: "${PI_SUB_SOCKET:=pi-sub}"
+: "${PI_SUB_RUNS:=$HOME/.pi/pi-sub-runs}"
+: "${PI_CODING_AGENT_DIR:=$HOME/.pi/agent}"
+
+# Directory this script lives in, used to locate the beacon by default.
+# Pure string manipulation (no external `dirname`) so this is safe to run
+# even before set -u guards are relevant.
+SUB_SELF="${BASH_SOURCE[0]}"
+case "$SUB_SELF" in
+  */*) SUB_DIR="${SUB_SELF%/*}" ;;
+  *) SUB_DIR="." ;;
+esac
+: "${PI_SUB_BEACON:=$SUB_DIR/beacon/index.ts}"
+: "${PI_SUB_CLAUDE_CODE_EXT:=$PI_CODING_AGENT_DIR/npm/node_modules/@benvargas/pi-claude-code-use/extensions/index.ts}"
+
+# Timing constants, all overridable so tests never need a real wall-clock wait.
+: "${PI_SUB_BEACONLESS_SECS:=20}"       # V16/F4: tmux alive, no state.json this long -> beaconless
+: "${PI_SUB_ORPHAN_LEASE_SECS:=60}"     # parent-alive mtime older than this -> orphaned
+: "${PI_SUB_KILL_IDLE_TIMEOUT_SECS:=10}"  # sub kill: max wait for idle after abort
+: "${PI_SUB_KILL_GRACE_SECS:=10}"       # sub kill: max wait for clean quit before force-kill
+: "${PI_SUB_KILL_POLL_SECS:=0.2}"       # sub kill: poll interval while waiting
+: "${PI_SUB_LOCK_TIMEOUT_SECS:=10}"     # sub open/resume: max wait for another respawn to finish
+: "${PI_SUB_LOCK_POLL_SECS:=0.1}"       # sub open/resume: poll interval while waiting on lock/
+: "${PI_SUB_WAIT_TIMEOUT_SECS:=600}"    # sub wait: default timeout
+: "${PI_SUB_WAIT_POLL_SECS:=0.2}"       # sub wait: poll interval
 
 usage() {
   cat <<'EOF'
 Usage:
-  sub spawn <name> [opts] <task text>     Spawn a subagent (async, detached tmux)
+  sub spawn <name> [opts] <task text>       Spawn an interactive child (detached tmux)
   sub spawn <name> [opts] -f <task-file>
-  sub list                                List children and their status
-  sub wait [name...] [--timeout <secs>]   Block until children finish (default: all running)
-  sub out <name>                          Print a child's output (latest turn)
-  sub peek <name>                         Tail a running child's output so far
-  sub resume <name> <message>             Send a follow-up turn (same session, async)
-  sub kill <name>                         Kill a running child
-  sub clean [--all]                       Remove run dirs older than 7 days (or all)
+  sub list                                  List children and their state
+  sub open <name>                           Attach to a child in a new cmux tab (respawns if closed/dead)
+  sub resume <name> <message>               Send a follow-up turn (writes inbox/<seq>.md)
+  sub resume <name> -f <file>
+  sub wait [name...] [--timeout <secs>]     Wait for the turn covering this parent's last inbox seq
+  sub out <name>                            Print a child's latest turn output
+  sub peek <name>                           Tail a child's latest turn output
+  sub stop <name>                           Abort the child's current turn (keeps it alive)
+  sub kill <name> [--force]                 End the child gracefully (or force-kill with --force)
+  sub kill --all [--force]                  Kill every child owned by this session
+  sub orphans [--kill]                      List (or kill) children whose parent lease has expired
+  sub clean [--all]                         Remove old/closed run dirs; always sweeps inbox/*.sent,*.rejected
 
 Spawn options:
   --model <provider/id>   Model (default: github-copilot/claude-haiku-4.5)
@@ -27,68 +69,343 @@ Spawn options:
   --thinking <level>      off|minimal|low|medium|high (default: off)
   --ext <path>            Load a specific extension (repeatable, discovery stays off)
 EOF
-  exit 1
 }
 
-sanitize() { echo "$1" | tr -c 'a-zA-Z0-9_-' '-' | sed 's/-*$//'; }
+# ── Pure helpers (string/arithmetic only, no forks) ─────────────────────
+
+sanitize() {
+  # tr/sed are external; this is small enough to do in pure bash.
+  local s=$1 out="" c
+  local i n=${#s}
+  for ((i = 0; i < n; i++)); do
+    c=${s:i:1}
+    case "$c" in
+      [a-zA-Z0-9_-]) out+="$c" ;;
+      *) out+="-" ;;
+    esac
+  done
+  # strip trailing dashes
+  while [[ "$out" == *- ]]; do out=${out%-}; done
+  echo "$out"
+}
+
+session_name() { # dir -> tmux session name (pure)
+  local d=$1
+  echo "${d##*/}"
+}
+
+# derive_state <run-dir> <tmux-alive:true|false> <now-epoch-secs>
+#
+# Pure: reads state.json / spawned via the `read` builtin and bash regex
+# only, no external command is ever invoked. Matches the state table in
+# spec-interactive-children.md, "Child lifecycle".
+derive_state() {
+  local dir=$1 alive=$2 now=$3
+  local recorded="" line=""
+  if [[ -f "$dir/state.json" ]]; then
+    IFS= read -r line <"$dir/state.json" || true
+    if [[ $line =~ \"state\":\"([a-zA-Z]+)\" ]]; then
+      recorded=${BASH_REMATCH[1]}
+    fi
+  fi
+  if [[ "$alive" == "true" ]]; then
+    case "$recorded" in
+      running) echo running; return 0 ;;
+      blocked) echo blocked; return 0 ;;
+      idle) echo idle; return 0 ;;
+      closed) echo closed; return 0 ;;
+    esac
+    # recorded is "" (never written) or "starting": disambiguate by age.
+    local spawned_ts=""
+    if [[ -f "$dir/spawned" ]]; then
+      IFS= read -r spawned_ts <"$dir/spawned" || true
+    fi
+    if [[ -z "$spawned_ts" || ! "$spawned_ts" =~ ^[0-9]+$ ]]; then
+      spawned_ts=0 # unknown spawn time: treat as long ago (defensive)
+    fi
+    local age=$((now - spawned_ts))
+    if ((age >= PI_SUB_BEACONLESS_SECS)); then
+      echo beaconless
+    else
+      echo starting
+    fi
+    return 0
+  fi
+  # tmux not alive
+  if [[ "$recorded" == "closed" ]]; then
+    echo closed
+  else
+    echo dead
+  fi
+}
+
+# highest_inbox_seq <run-dir> -> highest sequence number ever allocated,
+# across .md (pending), .md.sent and .md.rejected. Pure globbing + regex.
+highest_inbox_seq() {
+  local dir=$1 max=0 f base num
+  for f in "$dir"/inbox/*.md "$dir"/inbox/*.md.sent "$dir"/inbox/*.md.rejected; do
+    [[ -e "$f" ]] || continue
+    base=${f##*/}
+    if [[ $base =~ ^([0-9]+)\.md(\.(sent|rejected))?$ ]]; then
+      num=$((10#${BASH_REMATCH[1]}))
+      ((num > max)) && max=$num
+    fi
+  done
+  echo "$max"
+}
+
+# turns_covers_seq <run-dir> <seq> -> success if some turns.jsonl record's
+# "inbox" array contains <seq>. Pure line-by-line regex, no external tools.
+turns_covers_seq() {
+  local dir=$1 seq=$2 line inbox_part rest tok
+  local file="$dir/turns.jsonl"
+  [[ -f "$file" ]] || return 1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ $line =~ \"inbox\":\[([0-9,]*)\] ]] || continue
+    inbox_part=${BASH_REMATCH[1]}
+    rest="$inbox_part,"
+    while [[ -n "$rest" ]]; do
+      tok=${rest%%,*}
+      rest=${rest#*,}
+      [[ -n "$tok" && "$tok" -eq "$seq" ]] && return 0
+    done
+  done <"$file"
+  return 1
+}
+
+read_state_field() { # dir field -> value or "" (pure: numeric or string fields)
+  local dir=$1 field=$2 line=""
+  [[ -f "$dir/state.json" ]] || { echo ""; return 0; }
+  IFS= read -r line <"$dir/state.json" || true
+  if [[ $line =~ \"$field\":\"([^\"]*)\" ]]; then
+    echo "${BASH_REMATCH[1]}"
+  elif [[ $line =~ \"$field\":([0-9]+) ]]; then
+    echo "${BASH_REMATCH[1]}"
+  else
+    echo ""
+  fi
+}
+
+# ── Impure helpers (use the injectable binaries / filesystem) ──────────
+
+now_secs() { date +%s; }
+
+file_mtime_secs() { # path -> mtime in epoch secs, or empty if missing
+  local p=$1
+  [[ -e "$p" ]] || { echo ""; return 0; }
+  stat -f %m "$p" 2>/dev/null || stat -c %Y "$p" 2>/dev/null || echo ""
+}
+
+tmux_alive() { # dir -> success if the tmux session for it exists
+  local dir=$1
+  "$TMUX_BIN" -L "$PI_SUB_SOCKET" has-session -t "$(session_name "$dir")" 2>/dev/null
+}
 
 # owned <dir> -> success if the run belongs to this session.
-# Inside a pi session, PI_SUB_PARENT is set by the subagents-monitor extension
-# and every command is scoped to that session's runs. In a bare terminal
-# (PI_SUB_PARENT unset) all runs are visible.
+# Inside a pi session, PI_SUB_PARENT is set by the subagents-monitor
+# extension and every command is scoped to that session's runs. In a bare
+# terminal (PI_SUB_PARENT unset) all runs are visible.
 owned() {
-  [ -z "${PI_SUB_PARENT:-}" ] && return 0
-  [ "$(cat "$1/parent" 2>/dev/null)" = "$PI_SUB_PARENT" ]
+  local dir=$1
+  [[ -z "${PI_SUB_PARENT:-}" ]] && return 0
+  [[ "$(cat "$dir/parent" 2>/dev/null || true)" == "$PI_SUB_PARENT" ]]
+}
+
+# all_run_dirs -> every run dir under PI_SUB_RUNS (existence-checked)
+all_run_dirs() {
+  local d
+  for d in "$PI_SUB_RUNS"/*/; do
+    [[ -d "$d" ]] || continue
+    echo "${d%/}"
+  done
+}
+
+owned_run_dirs() {
+  local d
+  while IFS= read -r d; do
+    owned "$d" && echo "$d"
+  done < <(all_run_dirs)
 }
 
 # resolve <name> -> most recent owned run dir matching *-<name>
 resolve() {
   local name dir found=""
   name=$(sanitize "$1")
-  for dir in $(ls -d "$RUNS_DIR"/*-"$name" 2>/dev/null | sort); do
+  for dir in "$PI_SUB_RUNS"/*-"$name"; do
+    [[ -d "$dir" ]] || continue
     owned "$dir" && found=$dir
   done
-  [ -n "$found" ] || { echo "error: no run found for '$1' in this session" >&2; exit 1; }
+  if [[ -z "$found" ]]; then
+    echo "error: no run found for '$1' in this session" >&2
+    return 1
+  fi
   echo "$found"
 }
 
-session_of() { basename "$1"; }
-
-latest_n() { # highest turn index in a run dir (1 = initial)
-  local dir=$1 n=1
-  while [ -e "$dir/task-$((n + 1)).md" ]; do n=$((n + 1)); done
-  echo "$n"
+display_name() { # dir -> name with the leading timestamp- stripped
+  local base=${1##*/}
+  if [[ $base =~ ^[0-9]{8}-[0-9]{6}-(.+)$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+  else
+    echo "$base"
+  fi
 }
 
-launch() { # launch turn: dir, n, extra pi args...
-  local dir=$1 n=$2; shift 2
-  local cwd model thinking session q=""
-  cwd=$(cat "$dir/cwd"); model=$(cat "$dir/model"); thinking=$(cat "$dir/thinking")
-  session=$(session_of "$dir")
-  local -a cmd=("$PI_BIN" -p --model "$model" --no-extensions --no-skills
-    --thinking "$thinking" --session "$dir/session.jsonl")
-  if [ -s "$dir/tools" ]; then cmd+=(--tools "$(cat "$dir/tools")"); fi
-  while IFS= read -r ext; do [ -n "$ext" ] && cmd+=(-e "$ext"); done < "$dir/exts"
-  cmd+=("@$dir/task-$n.md")
-  local arg; for arg in "${cmd[@]}"; do q+=$(printf ' %q' "$arg"); done
-  printf '%s' "${PI_SUB_PARENT:-}" > "$dir/parent"
-  rm -f "$dir/exit-code-$n"
-  tmux -L "$SOCKET" new-session -d -s "$session" \
-    "cd $(printf '%q' "$cwd") &&$q > $(printf '%q' "$dir/out-$n.md") 2>&1; echo \$? > $(printf '%q' "$dir/exit-code-$n")"
-  echo "spawned: $session (model=$model, turn=$n)"
-  echo "dir:     $dir"
+is_pi_agent_dir() { # cwd -> success if it IS or is INSIDE PI_CODING_AGENT_DIR (V12/E24)
+  local cwd=$1 agent=$2
+  cwd="${cwd%/}"
+  agent="${agent%/}"
+  [[ "$cwd" == "$agent" || "$cwd" == "$agent"/* ]]
 }
+
+# write_inbox <dir> <text> -> allocates and writes the next inbox seq with
+# atomic exclusive creation (E3: no overwrite, no collision under concurrency).
+# Echoes the seq number written.
+write_inbox() {
+  local dir=$1 text=$2
+  mkdir -p "$dir/inbox"
+  local seq name
+  seq=$(($(highest_inbox_seq "$dir") + 1))
+  while :; do
+    name=$(printf '%06d.md' "$seq")
+    if [[ -e "$dir/inbox/$name" || -e "$dir/inbox/$name.sent" || -e "$dir/inbox/$name.rejected" ]]; then
+      seq=$((seq + 1))
+      continue
+    fi
+    if (
+      set -o noclobber
+      printf '%s' "$text" >"$dir/inbox/$name"
+    ) 2>/dev/null; then
+      echo "$seq"
+      return 0
+    fi
+    seq=$((seq + 1))
+  done
+}
+
+# ── Spawn/respawn: argv construction and tmux launch ────────────────────
+
+# pi_argv_for <dir> -> the pi argv, one token per line, on stdout.
+# Reads persisted meta from <dir>/meta.*. Never a positional prompt (spec:
+# "Turn 1 goes through the inbox too").
+pi_argv_for() {
+  local dir=$1
+  local cwd model tools thinking name
+  cwd=$(<"$dir/meta.cwd")
+  model=$(<"$dir/meta.model")
+  tools=$(<"$dir/meta.tools")
+  thinking=$(<"$dir/meta.thinking")
+  name=$(display_name "$dir")
+
+  printf '%s\n' \
+    "$PI_BIN" \
+    -a \
+    --no-extensions \
+    --no-skills \
+    --name "$name" \
+    --session "$dir/session.jsonl" \
+    -e "$PI_SUB_BEACON"
+
+  if [[ -s "$dir/meta.exts" ]]; then
+    local ext
+    while IFS= read -r ext; do
+      [[ -n "$ext" ]] && printf '%s\n%s\n' -e "$ext"
+    done <"$dir/meta.exts"
+  fi
+
+  printf '%s\n%s\n' --model "$model"
+  if [[ -n "$tools" ]]; then printf '%s\n%s\n' --tools "$tools"; fi
+  if [[ -n "$thinking" ]]; then printf '%s\n%s\n' --thinking "$thinking"; fi
+
+  # --no-extensions also drops installed packages, and anthropic/* only works
+  # with pi-claude-code-use: without it the model id fails to resolve, pi falls
+  # back to a custom id whose 400k max_tokens the API rejects, and the request
+  # is billed as a third-party app. Load just that one extension back.
+  case "$model" in
+    anthropic/*)
+      if [[ -f "$PI_SUB_CLAUDE_CODE_EXT" ]]; then printf '%s\n%s\n' -e "$PI_SUB_CLAUDE_CODE_EXT"; fi
+      ;;
+  esac
+  return 0
+}
+
+# pi_env_for <dir> -> the beacon's frozen-contract env vars, one KEY=VALUE
+# per line (see spec "Beacon contract (frozen, phase 1)").
+pi_env_for() {
+  local dir=$1
+  printf 'PI_SUB_RUN_DIR=%s\n' "$dir"
+  printf 'PI_SUB_SESSION=%s\n' "$(session_name "$dir")"
+  printf 'PI_SUB_SOCKET=%s\n' "$PI_SUB_SOCKET"
+  if [[ -n "${PI_SUB_IDLE_TTL:-}" ]]; then printf 'PI_SUB_IDLE_TTL=%s\n' "$PI_SUB_IDLE_TTL"; fi
+  if [[ -n "${PI_SUB_POLL_MS:-}" ]]; then printf 'PI_SUB_POLL_MS=%s\n' "$PI_SUB_POLL_MS"; fi
+  return 0
+}
+
+# start_tmux <dir> -> launches (or relaunches) the child's tmux session.
+# Resets the beaconless-age marker and drops any stale state.json first, so
+# derive_state falls back to "starting" rather than trusting a leftover
+# "closed"/"idle" value from a previous run of the same session file.
+start_tmux() {
+  local dir=$1
+  local cwd
+  cwd=$(<"$dir/meta.cwd")
+  now_secs >"$dir/spawned"
+  rm -f "$dir/state.json"
+
+  local -a argv=() envs=()
+  while IFS= read -r line; do argv+=("$line"); done < <(pi_argv_for "$dir")
+  while IFS= read -r line; do envs+=("$line"); done < <(pi_env_for "$dir")
+
+  local q="" tok
+  for tok in "${envs[@]}" "${argv[@]}"; do q+=$(printf ' %q' "$tok"); done
+
+  # The TUI must own the pane's tty: redirecting stdout makes pi exit at once,
+  # taking the tmux session with it. Capture output with pipe-pane instead.
+  "$TMUX_BIN" -L "$PI_SUB_SOCKET" new-session -d -s "$(session_name "$dir")" \
+    -x 120 -y 40 \
+    "cd $(printf '%q' "$cwd") && env$q"
+  "$TMUX_BIN" -L "$PI_SUB_SOCKET" pipe-pane -o -t "$(session_name "$dir")" \
+    "cat >>$(printf '%q' "$dir/tmux-stdout.log")" 2>/dev/null || true
+}
+
+# respawn_under_lock <dir> -> relaunches tmux under the lock/ mutex (E6):
+# concurrent callers race on `mkdir lock/`; exactly one respawns, the rest
+# wait for the lock to clear and then proceed (the winner already relaunched).
+respawn_under_lock() {
+  local dir=$1
+  if mkdir "$dir/lock" 2>/dev/null; then
+    if ! tmux_alive "$dir"; then
+      start_tmux "$dir"
+    fi
+    rmdir "$dir/lock" 2>/dev/null || true
+  else
+    local deadline=$(($(now_secs) + PI_SUB_LOCK_TIMEOUT_SECS))
+    while [[ -d "$dir/lock" ]]; do
+      (($(now_secs) >= deadline)) && break
+      sleep "$PI_SUB_LOCK_POLL_SECS"
+    done
+  fi
+}
+
+# ── Commands ─────────────────────────────────────────────────────────────
 
 cmd_spawn() {
-  [ $# -ge 1 ] || usage
-  local name model="github-copilot/claude-haiku-4.5" cwd="$PWD" tools="" thinking="off"
+  [[ $# -ge 1 ]] || { usage >&2; return 1; }
+  local raw_name=$1; shift
+  local name; name=$(sanitize "$raw_name")
+  [[ -n "$name" ]] || { echo "error: empty name" >&2; return 1; }
+
+  local model="github-copilot/claude-haiku-4.5" cwd="$PWD" tools="" thinking="off"
   local task="" taskfile="" exts=()
-  name=$(sanitize "$1"); shift
-  [ -n "$name" ] || { echo "error: empty name" >&2; exit 1; }
-  while [ $# -gt 0 ]; do
+  while [[ $# -gt 0 ]]; do
     case "$1" in
       --model) model=$2; shift 2 ;;
-      --cwd) cwd=$(cd "$2" && pwd); shift 2 ;;
+      --cwd)
+        if [[ ! -d "$2" ]]; then
+          echo "error: --cwd '$2' does not exist" >&2
+          return 1
+        fi
+        cwd=$(cd "$2" && pwd); shift 2 ;;
       --tools) tools=$2; shift 2 ;;
       --thinking) thinking=$2; shift 2 ;;
       --ext) exts+=("$2"); shift 2 ;;
@@ -96,124 +413,416 @@ cmd_spawn() {
       *) task="$task$1 "; shift ;;
     esac
   done
-  local dir="$RUNS_DIR/$(date +%Y%m%d-%H%M%S)-$name"
-  [ ! -e "$dir" ] || dir="$dir-$RANDOM"
-  mkdir -p "$dir"
-  if [ -n "$taskfile" ]; then cp "$taskfile" "$dir/task-1.md"
-  elif [ -n "$task" ]; then printf '%s\n' "$task" > "$dir/task-1.md"
-  else echo "error: no task given" >&2; exit 1; fi
-  printf '%s' "$cwd" > "$dir/cwd"
-  printf '%s' "$model" > "$dir/model"
-  printf '%s' "$thinking" > "$dir/thinking"
-  printf '%s' "$tools" > "$dir/tools"
-  printf '%s\n' "${exts[@]:-}" > "$dir/exts"
-  launch "$dir" 1
-}
 
-status_of() { # dir -> running | done(<code>) | dead
-  local dir=$1 n
-  n=$(latest_n "$dir")
-  if tmux -L "$SOCKET" has-session -t "$(session_of "$dir")" 2>/dev/null; then
-    echo "running"
-  elif [ -f "$dir/exit-code-$n" ]; then
-    echo "done($(cat "$dir/exit-code-$n"))"
-  else
-    echo "dead"
+  # E24, and the real mechanism behind V12: with cwd inside the agent dir, pi
+  # resolves extension imports against that dir's node_modules, which has no
+  # @earendil-works/pi-coding-agent. Every `-e` extension then fails to load —
+  # including pi-claude-code-use, without which anthropic/* ids don't resolve
+  # and the API rejects the request as a third-party app. The beacon dies the
+  # same way, so the child is unobservable. Work on the agent dir from a
+  # scratch cwd using absolute paths instead.
+  local agent_dir
+  agent_dir=$(cd "$PI_CODING_AGENT_DIR" 2>/dev/null && pwd || echo "$PI_CODING_AGENT_DIR")
+  if is_pi_agent_dir "$cwd" "$agent_dir"; then
+    echo "error: refusing --cwd '$cwd' — it is inside the pi agent dir ($agent_dir)," >&2
+    echo "       where -e extensions cannot resolve @earendil-works/pi-coding-agent." >&2
+    echo "       Use a scratch --cwd and edit $agent_dir by absolute path." >&2
+    return 1
   fi
+
+  local dir="$PI_SUB_RUNS/$(date +%Y%m%d-%H%M%S)-$name"
+  [[ ! -e "$dir" ]] || dir="$dir-$RANDOM"
+  mkdir -p "$dir/inbox" "$dir/control"
+
+  if [[ -n "$taskfile" ]]; then
+    task=$(<"$taskfile")
+  elif [[ -n "$task" ]]; then
+    task=${task%% }
+  else
+    echo "error: no task given" >&2
+    return 1
+  fi
+
+  printf '%s' "$cwd" >"$dir/meta.cwd"
+  printf '%s' "$model" >"$dir/meta.model"
+  printf '%s' "$thinking" >"$dir/meta.thinking"
+  printf '%s' "$tools" >"$dir/meta.tools"
+  : >"$dir/meta.exts"
+  local e
+  for e in "${exts[@]:-}"; do [[ -n "$e" ]] && printf '%s\n' "$e" >>"$dir/meta.exts"; done
+  printf '%s' "${PI_SUB_PARENT:-}" >"$dir/parent"
+
+  # Turn 1 goes through the inbox too (spec) — write it before starting tmux
+  # so the beacon's first poll (fired synchronously at session_start) finds
+  # it immediately; no positional prompt is ever passed to pi.
+  printf '%s' "$task" >"$dir/inbox/000001.md"
+
+  start_tmux "$dir"
+  echo "spawned: $(session_name "$dir")"
+  echo "dir:     $dir"
 }
 
 cmd_list() {
-  local dir
-  for dir in $(ls -d "$RUNS_DIR"/*/ 2>/dev/null | sort); do
-    dir=${dir%/}
-    owned "$dir" || continue
-    printf '%-45s %-10s turn=%s\n' "$(basename "$dir")" "$(status_of "$dir")" "$(latest_n "$dir")"
-  done
-}
-
-cmd_wait() {
-  local timeout=600 dirs=() name dir waited=0
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --timeout) timeout=$2; shift 2 ;;
-      *) dirs+=("$(resolve "$1")"); shift ;;
-    esac
-  done
-  if [ ${#dirs[@]} -eq 0 ]; then
-    for dir in $(ls -d "$RUNS_DIR"/*/ 2>/dev/null); do
-      dir=${dir%/}
-      owned "$dir" || continue
-      [ "$(status_of "$dir")" = "running" ] && dirs+=("$dir")
-    done
-  fi
-  [ ${#dirs[@]} -gt 0 ] || { echo "nothing to wait for"; return 0; }
-  while :; do
-    local pending=0
-    for dir in "${dirs[@]}"; do
-      [ "$(status_of "$dir")" = "running" ] && pending=$((pending + 1))
-    done
-    [ "$pending" -eq 0 ] && break
-    [ "$waited" -ge "$timeout" ] && { echo "timeout after ${timeout}s ($pending still running)"; break; }
-    sleep 2; waited=$((waited + 2))
-  done
-  for dir in "${dirs[@]}"; do
-    local n; n=$(latest_n "$dir")
-    printf '%-45s %-10s out: %s\n' "$(basename "$dir")" "$(status_of "$dir")" "$dir/out-$n.md"
-  done
+  local dir now alive state turn
+  now=$(now_secs)
+  while IFS= read -r dir; do
+    if tmux_alive "$dir"; then alive=true; else alive=false; fi
+    state=$(derive_state "$dir" "$alive" "$now")
+    turn=$(read_state_field "$dir" turn)
+    printf '%-30s %-12s turn=%s\n' "$(display_name "$dir")" "$state" "${turn:-0}"
+  done < <(owned_run_dirs | sort)
 }
 
 cmd_out() {
-  local dir n
-  dir=$(resolve "$1"); n=$(latest_n "$dir")
-  echo "--- $(basename "$dir") [$(status_of "$dir")] turn=$n ---"
-  cat "$dir/out-$n.md" 2>/dev/null || echo "(no output yet)"
+  [[ $# -ge 1 ]] || { echo "error: name required" >&2; return 1; }
+  local dir; dir=$(resolve "$1")
+  local turn; turn=$(read_state_field "$dir" turn)
+  [[ -n "$turn" && "$turn" != "0" ]] || turn=$(latest_out_turn "$dir")
+  echo "--- $(display_name "$dir") turn=$turn ---"
+  cat "$dir/out-$turn.md" 2>/dev/null || echo "(no output yet)"
+}
+
+latest_out_turn() { # dir -> highest N such that out-N.md exists, else 0 (pure globbing)
+  local dir=$1 max=0 f base num
+  for f in "$dir"/out-*.md; do
+    [[ -e "$f" ]] || continue
+    base=${f##*/}
+    if [[ $base =~ ^out-([0-9]+)\.md$ ]]; then
+      num=${BASH_REMATCH[1]}
+      ((num > max)) && max=$num
+    fi
+  done
+  echo "$max"
 }
 
 cmd_peek() {
-  local dir n
-  dir=$(resolve "$1"); n=$(latest_n "$dir")
-  echo "--- $(basename "$dir") [$(status_of "$dir")] last 20 lines ---"
-  tail -n 20 "$dir/out-$n.md" 2>/dev/null || echo "(no output yet)"
+  [[ $# -ge 1 ]] || { echo "error: name required" >&2; return 1; }
+  local dir; dir=$(resolve "$1")
+  local turn; turn=$(latest_out_turn "$dir")
+  echo "--- $(display_name "$dir") turn=$turn (tail) ---"
+  tail -n 20 "$dir/out-$turn.md" 2>/dev/null || echo "(no output yet)"
 }
 
 cmd_resume() {
-  local dir n
-  dir=$(resolve "$1"); shift
-  [ $# -ge 1 ] || { echo "error: no message given" >&2; exit 1; }
-  [ "$(status_of "$dir")" != "running" ] || { echo "error: still running — wait or kill first" >&2; exit 1; }
-  n=$(( $(latest_n "$dir") + 1 ))
-  printf '%s\n' "$*" > "$dir/task-$n.md"
-  launch "$dir" "$n"
+  [[ $# -ge 1 ]] || { echo "error: name required" >&2; return 1; }
+  local name=$1; shift
+  local dir; dir=$(resolve "$name")
+  local message="" file=""
+  if [[ "${1:-}" == "-f" ]]; then
+    file=$2
+    message=$(<"$file")
+  else
+    message="$*"
+  fi
+  [[ -n "$message" ]] || { echo "error: no message given" >&2; return 1; }
+
+  local alive state
+  if tmux_alive "$dir"; then alive=true; else alive=false; fi
+  state=$(derive_state "$dir" "$alive" "$(now_secs)")
+
+  case "$state" in
+    closed | dead)
+      # E4: respawn first; the beacon drains the whole inbox at startup.
+      respawn_under_lock "$dir"
+      ;;
+  esac
+
+  if [[ "$state" == "beaconless" ]]; then
+    # F4 fallback: the beacon never loaded, so nothing is draining the
+    # inbox. Fall back to key injection (V7).
+    tmux_paste_fallback "$dir" "$message"
+    echo "delivered via fallback paste (beaconless): $(display_name "$dir")"
+    return 0
+  fi
+
+  local seq; seq=$(write_inbox "$dir" "$message")
+  echo "queued: $(display_name "$dir") inbox seq=$seq"
+}
+
+# V7 fallback used only when the beacon isn't running: load-buffer + paste
+# without submitting, then a literal Enter. Never used when the beacon is
+# alive — the inbox is always preferred there.
+tmux_paste_fallback() {
+  local dir=$1 text=$2
+  local buf; buf=$(mktemp)
+  printf '%s' "$text" >"$buf"
+  "$TMUX_BIN" -L "$PI_SUB_SOCKET" load-buffer -b "sub-fallback" "$buf"
+  "$TMUX_BIN" -L "$PI_SUB_SOCKET" paste-buffer -p -b "sub-fallback" -t "$(session_name "$dir")"
+  "$TMUX_BIN" -L "$PI_SUB_SOCKET" send-keys -t "$(session_name "$dir")" Enter
+  rm -f "$buf"
+}
+
+cmd_wait() {
+  local timeout=$PI_SUB_WAIT_TIMEOUT_SECS
+  local names=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --timeout) timeout=$2; shift 2 ;;
+      *) names+=("$1"); shift ;;
+    esac
+  done
+
+  local dirs=()
+  if [[ ${#names[@]} -eq 0 ]]; then
+    while IFS= read -r d; do dirs+=("$d"); done < <(owned_run_dirs)
+  else
+    local n
+    for n in "${names[@]}"; do dirs+=("$(resolve "$n")"); done
+  fi
+  [[ ${#dirs[@]} -gt 0 ]] || { echo "nothing to wait for"; return 0; }
+
+  local -a targets=()
+  local dir alive state target rc=0
+  for dir in "${dirs[@]}"; do
+    if tmux_alive "$dir"; then alive=true; else alive=false; fi
+    state=$(derive_state "$dir" "$alive" "$(now_secs)")
+    if [[ "$state" == "beaconless" ]]; then
+      # F4: refuse rather than hang.
+      echo "error: $(display_name "$dir") is beaconless — refusing to wait (F4)" >&2
+      rc=1
+      continue
+    fi
+    target=$(highest_inbox_seq "$dir")
+    targets+=("$dir:$target")
+  done
+
+  local deadline=$(($(now_secs) + timeout))
+  local entry seq pending
+  while :; do
+    pending=0
+    for entry in "${targets[@]:-}"; do
+      [[ -n "$entry" ]] || continue
+      dir=${entry%%:*}
+      seq=${entry##*:}
+      turns_covers_seq "$dir" "$seq" || pending=$((pending + 1))
+    done
+    ((pending == 0)) && break
+    if (($(now_secs) >= deadline)); then
+      echo "timeout after ${timeout}s ($pending still pending)" >&2
+      rc=1
+      break
+    fi
+    sleep "$PI_SUB_WAIT_POLL_SECS"
+  done
+
+  for entry in "${targets[@]:-}"; do
+    [[ -n "$entry" ]] || continue
+    dir=${entry%%:*}
+    local turn; turn=$(read_state_field "$dir" turn)
+    printf '%-30s turn=%s out: %s\n' "$(display_name "$dir")" "${turn:-?}" "$dir/out-${turn:-0}.md"
+  done
+  return $rc
+}
+
+cmd_open() {
+  [[ $# -ge 1 ]] || { echo "error: name required" >&2; return 1; }
+  local dir; dir=$(resolve "$1")
+  local alive state
+  if tmux_alive "$dir"; then alive=true; else alive=false; fi
+  state=$(derive_state "$dir" "$alive" "$(now_secs)")
+  case "$state" in
+    closed | dead) respawn_under_lock "$dir" ;;
+  esac
+
+  local session; session=$(session_name "$dir")
+  local manual_cmd="$TMUX_BIN -L $PI_SUB_SOCKET attach -d -t $session"
+
+  if ! command -v "$CMUX_BIN" >/dev/null 2>&1; then
+    echo "cmux not found. Run manually:"
+    echo "  $manual_cmd"
+    return 0
+  fi
+
+  local surface
+  if ! surface=$("$CMUX_BIN" new-surface 2>/dev/null) || [[ -z "$surface" ]]; then
+    echo "cmux unavailable. Run manually:"
+    echo "  $manual_cmd"
+    return 0
+  fi
+  surface=$(echo "$surface" | head -n1 | tr -d '[:space:]')
+  "$CMUX_BIN" send --surface "$surface" "$manual_cmd
+" >/dev/null 2>&1 || {
+    echo "cmux send failed. Run manually:"
+    echo "  $manual_cmd"
+    return 0
+  }
+  echo "opened $(display_name "$dir") in $surface"
+}
+
+cmd_stop() {
+  [[ $# -ge 1 ]] || { echo "error: name required" >&2; return 1; }
+  local dir; dir=$(resolve "$1")
+  local alive state
+  if tmux_alive "$dir"; then alive=true; else alive=false; fi
+  state=$(derive_state "$dir" "$alive" "$(now_secs)")
+  if [[ "$state" == "beaconless" ]]; then
+    "$TMUX_BIN" -L "$PI_SUB_SOCKET" send-keys -t "$(session_name "$dir")" Escape
+    echo "sent Escape (beaconless fallback): $(display_name "$dir")"
+    return 0
+  fi
+  mkdir -p "$dir/control"
+  : >"$dir/control/abort"
+  echo "abort requested: $(display_name "$dir")"
+}
+
+# kill_one <dir> <force:true|false>
+kill_one() {
+  local dir=$1 force=$2
+  local session; session=$(session_name "$dir")
+
+  if [[ "$force" == "true" ]]; then
+    "$TMUX_BIN" -L "$PI_SUB_SOCKET" kill-session -t "$session" 2>/dev/null || true
+    return 0
+  fi
+
+  local alive state
+  if tmux_alive "$dir"; then alive=true; else alive=false; fi
+  state=$(derive_state "$dir" "$alive" "$(now_secs)")
+  case "$state" in
+    closed | dead)
+      echo "already stopped: $(display_name "$dir") ($state)"
+      return 0
+      ;;
+    beaconless)
+      "$TMUX_BIN" -L "$PI_SUB_SOCKET" send-keys -t "$session" -l '/quit'
+      "$TMUX_BIN" -L "$PI_SUB_SOCKET" send-keys -t "$session" Enter
+      local deadline=$(($(now_secs) + PI_SUB_KILL_GRACE_SECS))
+      while tmux_alive "$dir"; do
+        (($(now_secs) >= deadline)) && break
+        sleep "$PI_SUB_KILL_POLL_SECS"
+      done
+      tmux_alive "$dir" && "$TMUX_BIN" -L "$PI_SUB_SOCKET" kill-session -t "$session" 2>/dev/null || true
+      return 0
+      ;;
+  esac
+
+  # V10: ctx.shutdown() defers until idle. Abort first, or the force
+  # fallback would fire on exactly the children doing the most work.
+  mkdir -p "$dir/control"
+  : >"$dir/control/abort"
+
+  local deadline=$(($(now_secs) + PI_SUB_KILL_IDLE_TIMEOUT_SECS))
+  while :; do
+    if tmux_alive "$dir"; then alive=true; else alive=false; fi
+    state=$(derive_state "$dir" "$alive" "$(now_secs)")
+    if [[ "$state" == "idle" || "$state" == "closed" || "$state" == "dead" ]]; then break; fi
+    if (($(now_secs) >= deadline)); then break; fi
+    sleep "$PI_SUB_KILL_POLL_SECS"
+  done
+
+  if [[ "$state" != "closed" && "$state" != "dead" ]]; then
+    : >"$dir/control/quit"
+  fi
+
+  deadline=$(($(now_secs) + PI_SUB_KILL_GRACE_SECS))
+  while tmux_alive "$dir"; do
+    (($(now_secs) >= deadline)) && break
+    sleep "$PI_SUB_KILL_POLL_SECS"
+  done
+
+  if tmux_alive "$dir"; then
+    "$TMUX_BIN" -L "$PI_SUB_SOCKET" kill-session -t "$session" 2>/dev/null || true
+  fi
+  echo "killed: $(display_name "$dir")"
 }
 
 cmd_kill() {
-  local dir; dir=$(resolve "$1")
-  tmux -L "$SOCKET" kill-session -t "$(session_of "$dir")" 2>/dev/null \
-    && echo "killed $(basename "$dir")" || echo "not running"
+  local all=false force=false names=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --all) all=true; shift ;;
+      --force) force=true; shift ;;
+      *) names+=("$1"); shift ;;
+    esac
+  done
+
+  if [[ "$all" == "true" ]]; then
+    local d
+    while IFS= read -r d; do kill_one "$d" "$force"; done < <(owned_run_dirs)
+    return 0
+  fi
+
+  [[ ${#names[@]} -ge 1 ]] || { echo "error: name required (or --all)" >&2; return 1; }
+  local n dir
+  for n in "${names[@]}"; do
+    dir=$(resolve "$n")
+    kill_one "$dir" "$force"
+  done
+}
+
+cmd_orphans() {
+  local do_kill=false
+  [[ "${1:-}" == "--kill" ]] && do_kill=true
+
+  local dir now age mtime parent
+  now=$(now_secs)
+  for dir in $(all_run_dirs); do
+    tmux_alive "$dir" || continue # not a live child, nothing to orphan
+    mtime=$(file_mtime_secs "$dir/parent-alive")
+    if [[ -z "$mtime" ]]; then
+      age=999999999
+    else
+      age=$((now - mtime))
+    fi
+    if ((age >= PI_SUB_ORPHAN_LEASE_SECS)); then
+      parent=$(cat "$dir/parent" 2>/dev/null || echo "")
+      printf '%-30s parent=%-36s lease_age=%ss\n' "$(display_name "$dir")" "${parent:-?}" "$age"
+      # Not `[[ … ]] && kill_one`: a false test as the loop's last statement
+      # returns 1, and under `set -e` that aborts the scan mid-way.
+      if [[ "$do_kill" == "true" ]]; then
+        kill_one "$dir" false
+      fi
+    fi
+  done
+  return 0
 }
 
 cmd_clean() {
-  if [ "${1:-}" = "--all" ]; then
-    local dir
-    for dir in $(ls -d "$RUNS_DIR"/*/ 2>/dev/null); do
-      dir=${dir%/}
-      owned "$dir" || continue
-      [ "$(status_of "$dir")" = "running" ] || rm -rf "$dir"
-    done
+  local all=false
+  [[ "${1:-}" == "--all" ]] && all=true
+
+  local dir
+  while IFS= read -r dir; do
+    # E: sub clean owes the beacon one thing — sweep drained/rejected inbox
+    # entries nothing else touches.
+    rm -f "$dir"/inbox/*.sent "$dir"/inbox/*.rejected 2>/dev/null || true
+  done < <(owned_run_dirs)
+
+  if [[ "$all" == "true" ]]; then
+    local alive state
+    while IFS= read -r dir; do
+      if tmux_alive "$dir"; then alive=true; else alive=false; fi
+      state=$(derive_state "$dir" "$alive" "$(now_secs)")
+      if [[ "$state" == "closed" || "$state" == "dead" ]]; then rm -rf "$dir"; fi
+    done < <(owned_run_dirs)
   else
-    find "$RUNS_DIR" -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} +
+    local now mtime
+    now=$(now_secs)
+    while IFS= read -r dir; do
+      mtime=$(file_mtime_secs "$dir")
+      [[ -n "$mtime" ]] || continue
+      (((now - mtime) > 7 * 86400)) && rm -rf "$dir"
+    done < <(owned_run_dirs)
   fi
   echo "cleaned"
 }
 
-case "${1:-}" in
-  spawn)  shift; cmd_spawn "$@" ;;
-  list)   shift; cmd_list "$@" ;;
-  wait)   shift; cmd_wait "$@" ;;
-  out)    shift; cmd_out "$@" ;;
-  peek)   shift; cmd_peek "$@" ;;
-  resume) shift; cmd_resume "$@" ;;
-  kill)   shift; cmd_kill "$@" ;;
-  clean)  shift; cmd_clean "$@" ;;
-  *) usage ;;
-esac
+# ── Entry point ───────────────────────────────────────────────────────────
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  mkdir -p "$PI_SUB_RUNS"
+  case "${1:-}" in
+    spawn) shift; cmd_spawn "$@" ;;
+    list) shift; cmd_list "$@" ;;
+    open) shift; cmd_open "$@" ;;
+    resume) shift; cmd_resume "$@" ;;
+    wait) shift; cmd_wait "$@" ;;
+    out) shift; cmd_out "$@" ;;
+    peek) shift; cmd_peek "$@" ;;
+    stop) shift; cmd_stop "$@" ;;
+    kill) shift; cmd_kill "$@" ;;
+    orphans) shift; cmd_orphans "$@" ;;
+    clean) shift; cmd_clean "$@" ;;
+    *) usage; exit 1 ;;
+  esac
+fi

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Fake cmux for testing `sub open`. Records every invocation (tab-joined
+# args) to $FAKE_CMUX_LOG. `new-surface` prints a fake surface id;
+# `send --surface <id> <text>` just records it.
+#
+#   FAKE_CMUX_LOG           required: path to append invocation records to
+#   FAKE_CMUX_SURFACE       surface id to print for `new-surface` (default surface:1)
+#   FAKE_CMUX_NEW_SURFACE_EXIT  exit code for `new-surface` (default 0)
+set -euo pipefail
+
+: "${FAKE_CMUX_LOG:?FAKE_CMUX_LOG not set}"
+
+{
+  IFS=$'\t'
+  echo "$*"
+} >>"$FAKE_CMUX_LOG"
+
+case "${1:-}" in
+  new-surface)
+    exitcode=${FAKE_CMUX_NEW_SURFACE_EXIT:-0}
+    [[ "$exitcode" == "0" ]] && echo "${FAKE_CMUX_SURFACE:-surface:1}"
+    exit "$exitcode"
+    ;;
+  send)
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac

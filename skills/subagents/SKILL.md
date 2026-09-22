@@ -1,12 +1,15 @@
 ---
 name: subagents
-description: Delegate work to parallel or single headless pi subagents running in tmux with fresh context and cheap models. Use when a task benefits from parallel exploration, review fanout, isolated research, script/migration execution, or offloading context-heavy work to save the main session's context and cost.
+description: Delegate work to interactive pi subagent children running in tmux with fresh context and cheap models. Use when a task benefits from parallel exploration, review fanout, isolated research, script/migration execution, or offloading context-heavy work to save the main session's context and cost.
 ---
 
 # Subagents (tmux + pi)
 
-Spawn detached `pi -p` child runs via the `sub` helper script. Children always
-start with **fresh context** — they know nothing except their task prompt.
+Spawn **interactive** pi children via the `sub` helper script. A child is a
+live pi TUI in a detached tmux session (`-L pi-sub`) — not a one-shot `pi -p`
+run. It stays up after finishing your task: resume it, or a human can jump in
+and drive it directly, without disturbing the parent. Children always start
+with **fresh context** — they know nothing except their task prompt.
 Everything lives under `~/.pi/pi-sub-runs/<timestamp>-<name>/`.
 
 Script: `~/.pi/agent/skills/subagents/sub` (invoke with absolute path).
@@ -19,15 +22,38 @@ message you receive always refers to a child you spawned. In a bare terminal
 (no pi session) `sub` sees all runs.
 
 ```
-sub spawn <name> [opts] <task> | -f <file>   # async spawn, returns immediately
+sub spawn <name> [opts] <task> | -f <file>   # spawn, returns immediately
 sub list                                     # status of all children
-sub wait [name...] [--timeout <secs>]        # block until done (default 600s)
+sub open <name>                              # attach to a child (new cmux tab); respawns if closed/dead
+sub resume <name> <message>                  # follow-up turn, same child session
+sub wait [name...] [--timeout <secs>]        # block until the turn you asked for settles
 sub out <name>                               # print result
 sub peek <name>                              # tail output of a running child
-sub resume <name> <message>                  # follow-up turn, same child session
-sub kill <name>                              # stop a child
+sub stop <name>                              # abort the child's current turn, keep it alive
+sub kill <name> [--force]                    # end the child gracefully (or force-kill)
+sub orphans [--kill]                         # children whose parent lease has expired
 sub clean [--all]                            # remove old run dirs
 ```
+
+## Child lifecycle and states
+
+A child is not "running" or "done" the way a one-shot process is — it stays
+alive, idle, waiting for the next turn. `sub list` and the parent widget show:
+
+| State | Meaning | You can... |
+|---|---|---|
+| `starting` | tmux session up, pi not ready yet | wait, or `sub open` to watch it boot |
+| `running` | mid-turn (yours, or a human's) | `sub open` to watch, `sub stop` to abort |
+| `blocked` | waiting on an extension prompt — **needs a human** | `sub open` and answer it |
+| `idle` | settled, inbox empty, nothing pending | `sub resume`, `sub open`, or leave it |
+| `beaconless` | tmux alive but the beacon never loaded (bad path/syntax) | `sub open` and drive it by hand; `resume`/`kill` fall back to paste/Escape |
+| `closed` | clean exit (`kill`, `/quit`, idle TTL) | `sub open`/`sub resume` respawns it on the same session file |
+| `dead` | tmux gone, not a clean exit (crash, `--force` kill) | same as `closed` — respawnable, `sub` just doesn't call it clean |
+
+`closed` and `dead` are both jumpable; respawning costs one pi startup and
+picks the same `session.jsonl` back up, so the idle TTL (default 30 min) is
+cheap to hit. Idle TTL never fires while a human is attached or the child has
+undrained work.
 
 ## Role → model defaults
 
@@ -48,6 +74,12 @@ Registry warnings like `Model "..." not found ... Using custom model id` are har
 Write **self-contained task prompts** — the child has zero context. Include:
 concrete goal, relevant file paths, constraints, and the expected output shape.
 For non-trivial tasks write the prompt to a temp file and use `-f`.
+
+`--cwd` must not be `~/.pi/agent` (or any directory inside it): with that cwd
+pi resolves `-e` extension imports against the agent dir's own `node_modules`,
+which lacks `@earendil-works/pi-coding-agent`, so every extension — including
+the beacon — fails to load. `sub spawn` refuses this with an explanation; use
+a scratch `--cwd` and edit the agent dir by absolute path instead.
 
 Single child:
 
@@ -74,7 +106,7 @@ $S out review-tests
 Use this lifecycle for every delegated task:
 
 1. **Spawn** with a self-contained prompt and explicit output shape.
-2. **Continue independent work instead of blocking**; do not use tight `sleep`/`list`/`peek` polling loops. In interactive pi sessions the monitor extension wakes you automatically when children finish, so `wait` is only needed in bare terminals or when you truly have nothing else to do.
+2. **Continue independent work instead of blocking**; do not use tight `sleep`/`list`/`peek` polling loops. In interactive pi sessions the monitor extension wakes you automatically when a child's turn settles, so `wait` is only needed in bare terminals or when you truly have nothing else to do.
 3. **Read the completion output** with `sub out <name>` or the reported out-file path.
 4. **Inspect relevant changes** yourself for writer subagents.
 5. **Verify** with the appropriate project checks before reporting completion.
@@ -93,16 +125,48 @@ Completion notifications are status signals, not review. Always read the output 
 - **Thinking** defaults to `off` for cost. Raise per child with
   `--thinking medium` only when the task genuinely needs it.
 - `wait` prints each child's out-file path; read the file, don't re-run the child.
-- In interactive pi sessions, the subagents-monitor extension shows live child status and, when children complete, injects a `[subagent] ... finished` message. Completions landing within ~4s are batched into one message, and if the parent is idle the message **triggers a turn automatically** — so you resume the delegated work without the user prompting you. On such a wake-up: read every reported output file, verify/inspect changes, and continue the task the children were spawned for; only reply with one short line if nothing was actually pending on them. Set `PI_SUB_AUTOCONTINUE=0` to disable the auto-trigger (notification still arrives, delivered on the next turn).
 - After collecting results, `clean` old dirs occasionally.
+
+## Notifications (what the parent hears, and when)
+
+The subagents-monitor extension watches run dirs and decides whether — and
+when — the parent hears about a settled turn, keyed on **who caused it**:
+
+- **You asked** (a `sub resume`/`spawn` turn, or one where you and a human
+  both contributed) → a `[subagent] ... finished a turn` message arrives
+  immediately, `deliverAs: steer`. If you were idle, it also **triggers a
+  turn automatically** so you resume the delegated work without being
+  prompted. Turns settling within ~4s of each other are batched into one
+  message. Set `PI_SUB_AUTOCONTINUE=0` to disable the auto-trigger (the
+  notification still arrives, delivered on your next turn).
+- **A human steered the child directly** (attached via `sub open` and typed
+  into it) → nothing arrives right away. After the human stops typing for
+  10s, you get **one** note with the verbatim text of what they said, the
+  child's current state, and its output/session paths. This never triggers a
+  turn on its own — read it when you get to it.
+- **Neither** (an auto-compaction retry, an extension-triggered run with no
+  new user message) → silent.
+
+On such a wake-up: read every reported output file, verify/inspect changes,
+and continue the task the children were spawned for; only reply with one
+short line if nothing was actually pending on them.
+
+The widget also flags two things a poll can't safely stay silent about:
+`blocked` (the child is waiting on an extension prompt and needs a human —
+`sub open` it) and a **stuck tool call** (a tool that has been running for
+several minutes with no result — the widget names it, e.g. an unbounded
+`find /`). A `running` child that's merely waiting on the model (normal at
+high context, often 1-3 minutes) shows "waiting on provider" and never
+notifies — that's not a stall, it's a provider call in flight.
 
 ## Context, compaction, and resume discipline
 
-Pi auto-compaction remains enabled in headless children even though `sub` launches
-with `--no-extensions --no-skills`. The full `session.jsonl` always retains old
-entries, so its file size is **not** the active model context.
+Pi auto-compaction remains enabled in children even though `sub` launches
+with `--no-extensions --no-skills` (plus the beacon, loaded explicitly). The
+full `session.jsonl` always retains old entries, so its file size is **not**
+the active model context.
 
-The subagent monitor distinguishes:
+The subagent widget distinguishes:
 
 - `ctx~N`: approximate current context from the latest model call.
 - `ΣN tok`: cumulative session throughput. This repeatedly counts cached prompt
@@ -127,9 +191,18 @@ child indefinitely. No manual compaction is normally needed.
 
 ## Steering & observing
 
-- Follow-up on a finished child (keeps its compacted session context):
+- Follow-up on an idle child (keeps its compacted session context):
   `sub resume review-tests "Also check the e2e specs under tests/e2e."`
-- A human can watch/take over a live child: `tmux -L pi-sub attach -t <session-name>`
-  (session name = run dir basename, shown by `spawn` and `list`).
-- Child sessions persist at `<run-dir>/session.jsonl` and can be opened
-  interactively later: `pi --session <run-dir>/session.jsonl`.
+- **A human can watch or take over a live child**: `sub open <name>` (or
+  `/sub open <name>` inside the parent session, or the bare `/sub open` picker).
+  This opens a new cmux tab attached to the child's tmux session
+  (`tmux -L pi-sub attach -d -t <session-name>`, printed if cmux isn't
+  available). Typing into it is a normal turn from the child's point of view;
+  the parent is told about it only via the debounced note above, never by
+  key injection or session surgery.
+- Child sessions persist at `<run-dir>/session.jsonl` and can be opened later
+  with `pi --session <run-dir>/session.jsonl` if the run dir has been cleaned
+  up (rare — `sub clean` only removes `closed`/`dead` runs).
+- `sub orphans` lists (or `--kill`s) children whose parent session has gone
+  away — they keep running by design (decision: children outlive their
+  parent), so sweep them deliberately rather than relying on the TTL alone.

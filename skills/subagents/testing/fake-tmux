@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# Fake tmux for component-testing `sub` without spawning real tmux servers or
+# real pi processes.
+#
+# Records every invocation (one line, tab-joined args) to $FAKE_TMUX_LOG, and
+# implements just enough tmux semantics for `sub` to drive: a session becomes
+# "alive" after `new-session` and stops being alive after `kill-session`,
+# tracked as marker files under $FAKE_TMUX_STATE/sessions/. `-L <socket>` is
+# accepted and ignored — one fake tmux state dir is one fake "server" for the
+# whole test, which is enough because tests use unique PI_SUB_SOCKET/state
+# dirs per case anyway.
+#
+# Configurable via env, read fresh on every invocation so a test can change
+# behaviour mid-run:
+#   FAKE_TMUX_LOG          required: path to append invocation records to
+#   FAKE_TMUX_STATE        required: dir holding session marker files
+#   FAKE_TMUX_ATTACHED     0/1, answer for `display-message ... session_attached` (default 0)
+#   FAKE_TMUX_NEW_SESSION_EXIT  exit code for `new-session` (default 0)
+#   FAKE_TMUX_NO_LAUNCH    1: don't actually run the pane command in the
+#                          background — just mark the session alive. Lets a
+#                          test drive state.json/session liveness by hand
+#                          (kill ordering, orphans, wait targeting) without
+#                          racing a fake pi process's own lifecycle.
+set -euo pipefail
+
+: "${FAKE_TMUX_LOG:?FAKE_TMUX_LOG not set}"
+: "${FAKE_TMUX_STATE:?FAKE_TMUX_STATE not set}"
+mkdir -p "$FAKE_TMUX_STATE/sessions"
+
+{
+  IFS=$'\t'
+  echo "$*"
+} >>"$FAKE_TMUX_LOG"
+
+args=("$@")
+n=${#args[@]}
+cmd=""
+i=0
+while ((i < n)); do
+  case "${args[$i]}" in
+    -L) i=$((i + 2)); continue ;;
+    *) cmd="${args[$i]}"; break ;;
+  esac
+done
+
+find_opt() { # find_opt <flag> -> value following the first occurrence, or ""
+  local flag=$1 j
+  for ((j = 0; j < n; j++)); do
+    if [[ "${args[$j]}" == "$flag" ]]; then
+      echo "${args[$((j + 1))]}"
+      return 0
+    fi
+  done
+  echo ""
+}
+
+case "$cmd" in
+  new-session)
+    name=$(find_opt -s)
+    exitcode=${FAKE_TMUX_NEW_SESSION_EXIT:-0}
+    if [[ "$exitcode" == "0" ]]; then
+      : >"$FAKE_TMUX_STATE/sessions/$name"
+      if [[ "${FAKE_TMUX_NO_LAUNCH:-0}" != "1" ]]; then
+        # The last positional arg is the pane's shell command (what a real
+        # tmux would run in the pty). Run it in the background so a fake
+        # PI_BIN gets invoked with the real argv/env `sub` constructed, and
+        # clear the session marker when it exits (mimicking "session ends
+        # when the command exits").
+        pane_cmd="${args[$((n - 1))]}"
+        (
+          bash -c "$pane_cmd" &
+          child=$!
+          echo "$child" >"$FAKE_TMUX_STATE/sessions/$name.pid"
+          wait "$child"
+          rm -f "$FAKE_TMUX_STATE/sessions/$name" "$FAKE_TMUX_STATE/sessions/$name.pid"
+        ) </dev/null >/dev/null 2>&1 &
+        disown || true
+      fi
+    fi
+    exit "$exitcode"
+    ;;
+  has-session)
+    name=$(find_opt -t)
+    [[ -e "$FAKE_TMUX_STATE/sessions/$name" ]] && exit 0 || exit 1
+    ;;
+  kill-session)
+    name=$(find_opt -t)
+    if [[ -f "$FAKE_TMUX_STATE/sessions/$name.pid" ]]; then
+      kill "$(cat "$FAKE_TMUX_STATE/sessions/$name.pid")" 2>/dev/null || true
+    fi
+    rm -f "$FAKE_TMUX_STATE/sessions/$name" "$FAKE_TMUX_STATE/sessions/$name.pid"
+    exit 0
+    ;;
+  kill-server)
+    for f in "$FAKE_TMUX_STATE"/sessions/*.pid; do
+      [[ -e "$f" ]] || continue
+      kill "$(cat "$f")" 2>/dev/null || true
+    done
+    rm -f "$FAKE_TMUX_STATE"/sessions/*
+    exit 0
+    ;;
+  list-sessions)
+    ls "$FAKE_TMUX_STATE/sessions" 2>/dev/null
+    exit 0
+    ;;
+  display-message)
+    echo "${FAKE_TMUX_ATTACHED:-0}"
+    exit 0
+    ;;
+  pipe-pane | attach | send-keys | load-buffer | paste-buffer)
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac

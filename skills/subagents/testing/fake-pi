@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Fake pi for testing `sub spawn`'s argv/env construction without launching a
+# real TUI. Records argv (one per line) and every PI_SUB_*/relevant env var to
+# $FAKE_PI_LOG as a single JSON-ish block, then sleeps so the tmux session
+# stays "alive" long enough for a test to observe it before exiting.
+#
+#   FAKE_PI_LOG      required: path to write the record to (overwritten)
+#   FAKE_PI_SLEEP    seconds to sleep before exiting (default 5)
+set -euo pipefail
+
+: "${FAKE_PI_LOG:?FAKE_PI_LOG not set}"
+
+{
+  echo "== argv =="
+  for a in "$@"; do printf '%s\n' "$a"; done
+  echo "== env =="
+  env | grep -E '^PI_SUB_' | sort
+} >"$FAKE_PI_LOG"
+
+sleep "${FAKE_PI_SLEEP:-5}"
