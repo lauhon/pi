@@ -521,7 +521,7 @@ export function transition(
 
 // ── Rendering (pure) ──────────────────────────────────────────────────────
 
-const STATE_ICON: Record<ChildState, string> = {
+export const STATE_ICON: Record<ChildState, string> = {
 	starting: "\u22ef",
 	idle: "\u25c7",
 	running: "\u25cf",

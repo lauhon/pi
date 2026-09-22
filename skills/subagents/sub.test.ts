@@ -55,8 +55,12 @@ function tmpDir(prefix: string): string {
 	return d;
 }
 
+const usedSockets: string[] = [];
+
 function uniqueSocket(tag: string): string {
-	return `pi-sub-test-${tag}-${process.pid}-${Math.floor(Math.random() * 1e6)}`;
+	const s = `pi-sub-test-${tag}-${process.pid}-${Math.floor(Math.random() * 1e6)}`;
+	usedSockets.push(s);
+	return s;
 }
 
 function readIfExists(file: string): string | undefined {
@@ -107,6 +111,13 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
 
 afterAll(() => {
 	for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
+	// Killing the server leaves the socket *file*; without this the suite dripped
+	// dead sockets into /tmp/tmux-<uid> on every run.
+	const socketDir = path.join("/tmp", `tmux-${process.getuid?.() ?? 0}`);
+	for (const s of usedSockets) {
+		spawnSync(REAL_TMUX_BIN, ["-L", s, "kill-server"], { stdio: "ignore" });
+		rmSync(path.join(socketDir, s), { force: true });
+	}
 });
 
 // ── Layer 1: pure functions, sourced directly ────────────────────────────
@@ -610,6 +621,60 @@ describe("component: open respawn locking (E6) and missing cmux (E18)", () => {
 		const lines = tmuxLogLines(fx);
 		const newSessionCalls = lines.filter((l) => l.includes("new-session"));
 		expect(newSessionCalls).toHaveLength(1);
+	});
+
+	// Regression: `cmux new-surface` replies `OK surface:11 pane:4 workspace:2`,
+	// not a bare ref (verified against the real binary, 2026-09-22). `sub` used to
+	// strip whitespace from the whole line and hand `cmux send` the garbage ref
+	// `OKsurface:11pane:4workspace:2`, which opened a tab that then sat there
+	// doing nothing. Assert the exact ref reaches `send`.
+	it("passes the surface ref from new-surface through to cmux send (E19)", () => {
+		const fx = makeFixture("open-cmux", { FAKE_TMUX_NO_LAUNCH: "1", FAKE_CMUX_SURFACE: "surface:11" });
+		const spawned = runSub(fx, ["spawn", "cmuxchild", "--cwd", tmpDir("pi-sub-cx-"), "task"]);
+		expect(spawned.status, spawned.stderr).toBe(0);
+		const runDir = path.join(fx.runsDir, require("node:fs").readdirSync(fx.runsDir)[0]);
+		const session = path.basename(runDir);
+		writeFileSync(path.join(fx.tmuxState, "sessions", session), "");
+		writeFileSync(path.join(runDir, "state.json"), JSON.stringify({ state: "idle", turn: 1 }));
+
+		const result = runSub(fx, ["open", "cmuxchild"]);
+		expect(result.status, result.stderr).toBe(0);
+
+		const cmuxLog = readFileSync(path.join(path.dirname(fx.runsDir), "cmux.log"), "utf8")
+			.split("\n")
+			.filter(Boolean)
+			.map((l) => l.split("\t"));
+		const send = cmuxLog.find((a) => a[0] === "send");
+		expect(send, "expected a cmux send invocation").toBeDefined();
+		const refIdx = send!.indexOf("--surface") + 1;
+		expect(send![refIdx]).toBe("surface:11");
+		expect(send!.join(" ")).toMatch(new RegExp(`attach -d -t ${session}`));
+		expect(result.stdout).toMatch(/surface:11/);
+	});
+
+	// A child whose pi process dies on startup (bad model id, missing extension)
+	// leaves no tmux session. `open` used to respawn, ignore the outcome and
+	// announce "opened <name> in surface:N", so the new tab just printed
+	// "no sessions" and sat there. Fail loudly instead, and show why.
+	it("reports failure, not success, when a respawned child does not come up (E28)", () => {
+		const fx = makeFixture("open-deadrespawn", { FAKE_PI_SLEEP: "0" });
+		const spawned = runSub(fx, ["spawn", "doomed", "--cwd", tmpDir("pi-sub-dr-"), "task"]);
+		expect(spawned.status, spawned.stderr).toBe(0);
+		const runDir = path.join(fx.runsDir, require("node:fs").readdirSync(fx.runsDir)[0]);
+		writeFileSync(path.join(runDir, "state.json"), JSON.stringify({ state: "closed", turn: 1 }));
+		writeFileSync(path.join(runDir, "tmux-stdout.log"), 'Error: Model "nope/nope" not found.\n');
+		// Drop the session marker spawn left behind: the child's pi exited, so the
+		// tmux session is gone. A failing new-session models the respawn dying too.
+		rmSync(path.join(fx.tmuxState, "sessions", path.basename(runDir)), { force: true });
+		const result = runSub(fx, ["open", "doomed"], { FAKE_TMUX_NEW_SESSION_EXIT: "1" });
+
+		expect(result.status).not.toBe(0);
+		expect(result.stdout + result.stderr).not.toMatch(/opened doomed/);
+		expect(result.stdout + result.stderr).toMatch(/did not start|failed to start/i);
+		expect(result.stdout + result.stderr).toMatch(/Model "nope\/nope" not found/);
+		// A failed relaunch must still release the mutex: `set -e` used to kill the
+		// script between `mkdir lock` and `rmdir`, wedging every later open/resume.
+		expect(existsSync(path.join(runDir, "lock"))).toBe(false);
 	});
 
 	it("prints the manual attach command when cmux is unavailable", () => {

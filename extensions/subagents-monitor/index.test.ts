@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	DEFAULT_CONFIG,
+	STATE_ICON,
 	SUB_VERBS,
 	classifyTurns,
 	collectRun,
@@ -598,6 +599,23 @@ describe("createMonitor", () => {
 		expect(sent).toHaveLength(1);
 		expect(sent[0].opts).toMatchObject({ deliverAs: "steer", triggerTurn: false });
 		expect(sent[0].content).toContain("steer this");
+	});
+});
+
+// ── README documents every state symbol ──────────────────────────────────
+//
+// The symbol table is the first thing anyone reads and the easiest to leave
+// stale: rename an icon in STATE_ICON and the README silently describes a UI
+// that no longer exists.
+describe("README", () => {
+	it("documents every state icon and the attach indicator", () => {
+		const here = path.dirname(fileURLToPath(import.meta.url));
+		const readme = readFileSync(path.join(here, "README.md"), "utf8");
+		for (const [state, icon] of Object.entries(STATE_ICON)) {
+			expect(readme, `README is missing the ${state} icon ${icon}`).toContain(`\`${icon}\``);
+			expect(readme, `README is missing the ${state} state name`).toContain(`\`${state}\``);
+		}
+		expect(readme, "README is missing the attach indicator").toContain("`\u25c9`");
 	});
 });
 

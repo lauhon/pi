@@ -361,9 +361,12 @@ start_tmux() {
 
   # The TUI must own the pane's tty: redirecting stdout makes pi exit at once,
   # taking the tmux session with it. Capture output with pipe-pane instead.
-  "$TMUX_BIN" -L "$PI_SUB_SOCKET" new-session -d -s "$(session_name "$dir")" \
+  if ! "$TMUX_BIN" -L "$PI_SUB_SOCKET" new-session -d -s "$(session_name "$dir")" \
     -x 120 -y 40 \
-    "cd $(printf '%q' "$cwd") && env$q"
+    "cd $(printf '%q' "$cwd") && env$q"; then
+    echo "error: tmux new-session failed for $(display_name "$dir") (socket $PI_SUB_SOCKET)" >&2
+    return 1
+  fi
   "$TMUX_BIN" -L "$PI_SUB_SOCKET" pipe-pane -o -t "$(session_name "$dir")" \
     "cat >>$(printf '%q' "$dir/tmux-stdout.log")" 2>/dev/null || true
 }
@@ -374,8 +377,11 @@ start_tmux() {
 respawn_under_lock() {
   local dir=$1
   if mkdir "$dir/lock" 2>/dev/null; then
+    # Best-effort: a failed relaunch must still release the mutex, or every
+    # later open/resume blocks on a lock nobody holds. The caller decides what
+    # a still-dead child means.
     if ! tmux_alive "$dir"; then
-      start_tmux "$dir"
+      start_tmux "$dir" || true
     fi
     rmdir "$dir/lock" 2>/dev/null || true
   else
@@ -624,6 +630,17 @@ cmd_open() {
     closed | dead) respawn_under_lock "$dir" ;;
   esac
 
+  # A child whose pi died on startup (bad model id, unloadable extension) leaves
+  # no session; attaching would just print "no sessions" into a fresh tab.
+  if ! tmux_alive "$dir"; then
+    echo "error: $(display_name "$dir") did not start" >&2
+    if [[ -s "$dir/tmux-stdout.log" ]]; then
+      echo "--- last output from the child ---" >&2
+      tail -n 5 "$dir/tmux-stdout.log" >&2
+    fi
+    return 1
+  fi
+
   local session; session=$(session_name "$dir")
   local manual_cmd="$TMUX_BIN -L $PI_SUB_SOCKET attach -d -t $session"
 
@@ -633,13 +650,20 @@ cmd_open() {
     return 0
   fi
 
-  local surface
-  if ! surface=$("$CMUX_BIN" new-surface 2>/dev/null) || [[ -z "$surface" ]]; then
+  local surface_out surface
+  if ! surface_out=$("$CMUX_BIN" new-surface 2>/dev/null) || [[ -z "$surface_out" ]]; then
     echo "cmux unavailable. Run manually:"
     echo "  $manual_cmd"
     return 0
   fi
-  surface=$(echo "$surface" | head -n1 | tr -d '[:space:]')
+  # Real cmux replies `OK surface:11 pane:4 workspace:2` (verified 2026-09-22).
+  # Pull the ref out by shape; never collapse the whole line.
+  surface=$(printf '%s' "$surface_out" | grep -oE 'surface:[0-9]+' | head -n1)
+  if [[ -z "$surface" ]]; then
+    echo "cmux returned no surface ref (got: $(printf '%s' "$surface_out" | head -n1)). Run manually:"
+    echo "  $manual_cmd"
+    return 0
+  fi
   "$CMUX_BIN" send --surface "$surface" "$manual_cmd
 " >/dev/null 2>&1 || {
     echo "cmux send failed. Run manually:"

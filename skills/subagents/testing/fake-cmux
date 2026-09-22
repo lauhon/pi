@@ -3,8 +3,18 @@
 # args) to $FAKE_CMUX_LOG. `new-surface` prints a fake surface id;
 # `send --surface <id> <text>` just records it.
 #
+# The `new-surface` reply mirrors the real cmux wire format, verified against
+# /Applications/cmux.app on 2026-09-22:
+#
+#     OK surface:11 pane:4 workspace:2
+#
+# It is NOT a bare ref. An earlier version of this fake printed `surface:1`
+# alone, so `sub open` shipped with a parser that stripped whitespace and
+# produced `OKsurface:11pane:4workspace:2` — a green test against a format
+# that never existed. Keep this in step with the real binary.
+#
 #   FAKE_CMUX_LOG           required: path to append invocation records to
-#   FAKE_CMUX_SURFACE       surface id to print for `new-surface` (default surface:1)
+#   FAKE_CMUX_SURFACE       surface ref to report from `new-surface` (default surface:1)
 #   FAKE_CMUX_NEW_SURFACE_EXIT  exit code for `new-surface` (default 0)
 set -euo pipefail
 
@@ -18,10 +28,13 @@ set -euo pipefail
 case "${1:-}" in
   new-surface)
     exitcode=${FAKE_CMUX_NEW_SURFACE_EXIT:-0}
-    [[ "$exitcode" == "0" ]] && echo "${FAKE_CMUX_SURFACE:-surface:1}"
+    if [[ "$exitcode" == "0" ]]; then
+      echo "OK ${FAKE_CMUX_SURFACE:-surface:1} pane:4 workspace:2"
+    fi
     exit "$exitcode"
     ;;
   send)
+    echo "OK ${FAKE_CMUX_SURFACE:-surface:1} workspace:2"
     exit 0
     ;;
   *)
