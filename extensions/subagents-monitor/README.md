@@ -109,8 +109,10 @@ The tab is a tmux pane, so the scroll wheel scrolls tmux's history rather than
 the terminal's. It enters tmux copy-mode; `q` or Escape leaves it. The mouse
 setting and the history length live in
 [skills/subagents/tmux.conf](../../skills/subagents/tmux.conf), which only
-applies to the `pi-sub` server. A child started before a change to that file
-keeps its old history length.
+applies to the `pi-sub` server. The same file turns on tmux extended keys, so
+Shift+Enter adds a new line instead of submitting. A child started before a
+change to that file keeps its old history length and key handling until it
+restarts: `/sub kill <name>`, then `/sub open <name>`.
 
 `stop` aborts the current turn but keeps the child alive. `kill` ends the child:
 it aborts, waits for idle so it never kills work mid-flight, asks pi to quit,

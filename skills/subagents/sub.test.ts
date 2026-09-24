@@ -840,6 +840,10 @@ describe.runIf(REAL_CAPABLE)("end-to-end: real beacon + stub provider, throwaway
 				spawnSync(REAL_TMUX_BIN, ["-L", socket, ...args], { encoding: "utf8" }).stdout.trim();
 			expect(tmuxOut(["show-options", "-gv", "mouse"])).toBe("on");
 			expect(Number(tmuxOut(["display-message", "-p", "-t", session, "#{history_limit}"]))).toBeGreaterThan(2000);
+			// Without extended keys tmux reports Shift+Enter as plain Enter, so typing a
+			// newline into an attached child would submit the prompt (pi docs/tmux.md).
+			expect(tmuxOut(["show-options", "-sv", "extended-keys"])).toBe("on");
+			expect(tmuxOut(["show-options", "-sv", "extended-keys-format"])).toBe("csi-u");
 
 			await waitFor(`idle-1 (state=${JSON.stringify(readJsonIfExists(path.join(runDir, "state.json")))})`, () =>
 				existsSync(path.join(runDir, "idle-1")),
