@@ -38,7 +38,7 @@ cmd=""
 i=0
 while ((i < n)); do
   case "${args[$i]}" in
-    -L) i=$((i + 2)); continue ;;
+    -L | -f) i=$((i + 2)); continue ;;
     *) cmd="${args[$i]}"; break ;;
   esac
 done

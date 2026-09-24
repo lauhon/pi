@@ -105,6 +105,13 @@ Tab completes verbs and this session's child names. `/sub open` with no name
 opens a picker. `open` puts the child in a new cmux tab; you can type in it and
 leave whenever you like.
 
+The tab is a tmux pane, so the scroll wheel scrolls tmux's history rather than
+the terminal's. It enters tmux copy-mode; `q` or Escape leaves it. The mouse
+setting and the history length live in
+[skills/subagents/tmux.conf](../../skills/subagents/tmux.conf), which only
+applies to the `pi-sub` server. A child started before a change to that file
+keeps its old history length.
+
 `stop` aborts the current turn but keeps the child alive. `kill` ends the child:
 it aborts, waits for idle so it never kills work mid-flight, asks pi to quit,
 and only then force-kills the tmux session. `orphans` finds children whose

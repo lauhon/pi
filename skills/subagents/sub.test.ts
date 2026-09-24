@@ -603,6 +603,48 @@ done`,
 	});
 });
 
+// The attached child is a tmux pane, so the outer terminal's scrollback never
+// sees it. Scrolling needs tmux `mouse on` (wheel -> copy-mode), and a history
+// long enough for an agent transcript. Both come from the skill's tmux.conf,
+// passed with -f when a command starts the pi-sub server. `open` re-applies it
+// so children on a server started before the config existed also scroll.
+describe("component: attach scrolling (tmux.conf)", () => {
+	function tmuxCalls(fx: Fixture): string[][] {
+		return tmuxLogLines(fx).map((l) => l.split("\t"));
+	}
+
+	it("starts children with the skill's tmux.conf, which turns the mouse on", () => {
+		const fx = makeFixture("scroll-spawn", { FAKE_TMUX_NO_LAUNCH: "1" });
+		const spawned = runSub(fx, ["spawn", "scroller", "--cwd", tmpDir("pi-sub-sc-"), "task"]);
+		expect(spawned.status, spawned.stderr).toBe(0);
+
+		const newSession = tmuxCalls(fx).find((a) => a.includes("new-session"));
+		expect(newSession, "expected a new-session call").toBeDefined();
+		const confIdx = newSession!.indexOf("-f");
+		expect(confIdx, "new-session must pass -f <conf>").toBeGreaterThan(-1);
+		expect(confIdx, "-f must come before the subcommand").toBeLessThan(newSession!.indexOf("new-session"));
+		const conf = readFileSync(newSession![confIdx + 1], "utf8");
+		expect(conf).toMatch(/^set -g mouse on$/m);
+		expect(conf).toMatch(/^set -g history-limit \d+$/m);
+	});
+
+	it("re-applies the tmux.conf on open, so already-running children scroll too", () => {
+		const fx = makeFixture("scroll-open", { FAKE_TMUX_NO_LAUNCH: "1" });
+		const spawned = runSub(fx, ["spawn", "oldchild", "--cwd", tmpDir("pi-sub-so-"), "task"]);
+		expect(spawned.status, spawned.stderr).toBe(0);
+		const runDir = path.join(fx.runsDir, require("node:fs").readdirSync(fx.runsDir)[0]);
+		writeFileSync(path.join(runDir, "state.json"), JSON.stringify({ state: "idle", turn: 1 }));
+
+		const opened = runSub(fx, ["open", "oldchild"]);
+		expect(opened.status, opened.stderr).toBe(0);
+
+		const sourced = tmuxCalls(fx).find((a) => a.includes("source-file"));
+		expect(sourced, "open must source the tmux.conf").toBeDefined();
+		expect(sourced![sourced!.indexOf("-L") + 1]).toBe(fx.socket);
+		expect(readFileSync(sourced![sourced!.length - 1], "utf8")).toMatch(/^set -g mouse on$/m);
+	});
+});
+
 describe("component: open respawn locking (E6) and missing cmux (E18)", () => {
 	it("two racing opens on a closed child produce exactly one respawn", async () => {
 		const fx = makeFixture("open-race", { PI_SUB_LOCK_POLL_SECS: "0.02", FAKE_PI_SLEEP: "1" });
@@ -791,6 +833,13 @@ describe.runIf(REAL_CAPABLE)("end-to-end: real beacon + stub provider, throwaway
 			// after spawn — a stdout redirect made pi exit within ~1s
 			await new Promise((r) => setTimeout(r, 3000));
 			expect(realSessionAlive(socket, session)).toBe(true);
+
+			// Scrolling when attached: real tmux, not the fake, must report mouse on
+			// and a pane history longer than tmux's 2000-line default.
+			const tmuxOut = (args: string[]) =>
+				spawnSync(REAL_TMUX_BIN, ["-L", socket, ...args], { encoding: "utf8" }).stdout.trim();
+			expect(tmuxOut(["show-options", "-gv", "mouse"])).toBe("on");
+			expect(Number(tmuxOut(["display-message", "-p", "-t", session, "#{history_limit}"]))).toBeGreaterThan(2000);
 
 			await waitFor(`idle-1 (state=${JSON.stringify(readJsonIfExists(path.join(runDir, "state.json")))})`, () =>
 				existsSync(path.join(runDir, "idle-1")),

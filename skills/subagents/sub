@@ -31,6 +31,7 @@ case "$SUB_SELF" in
   *) SUB_DIR="." ;;
 esac
 : "${PI_SUB_BEACON:=$SUB_DIR/beacon/index.ts}"
+: "${PI_SUB_TMUX_CONF:=$SUB_DIR/tmux.conf}"
 : "${PI_SUB_CLAUDE_CODE_EXT:=$PI_CODING_AGENT_DIR/npm/node_modules/@benvargas/pi-claude-code-use/extensions/index.ts}"
 
 # Timing constants, all overridable so tests never need a real wall-clock wait.
@@ -361,7 +362,8 @@ start_tmux() {
 
   # The TUI must own the pane's tty: redirecting stdout makes pi exit at once,
   # taking the tmux session with it. Capture output with pipe-pane instead.
-  if ! "$TMUX_BIN" -L "$PI_SUB_SOCKET" new-session -d -s "$(session_name "$dir")" \
+  # -f only takes effect when this call starts the server; `open` re-sources it.
+  if ! "$TMUX_BIN" -L "$PI_SUB_SOCKET" -f "$PI_SUB_TMUX_CONF" new-session -d -s "$(session_name "$dir")" \
     -x 120 -y 40 \
     "cd $(printf '%q' "$cwd") && env$q"; then
     echo "error: tmux new-session failed for $(display_name "$dir") (socket $PI_SUB_SOCKET)" >&2
@@ -640,6 +642,10 @@ cmd_open() {
     fi
     return 1
   fi
+
+  # The server may predate the config (or a change to it). Mouse mode applies to
+  # running panes at once; that is what makes the wheel scroll the attached child.
+  "$TMUX_BIN" -L "$PI_SUB_SOCKET" source-file "$PI_SUB_TMUX_CONF" 2>/dev/null || true
 
   local session; session=$(session_name "$dir")
   local manual_cmd="$TMUX_BIN -L $PI_SUB_SOCKET attach -d -t $session"
