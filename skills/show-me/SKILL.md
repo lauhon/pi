@@ -64,13 +64,36 @@ These are not taste. They're the findings.
 6. **Don't repeat the diagram in a caption.** If the visual works, saying the same thing twice adds load rather than reinforcement — especially for someone who already knows the domain.
 Avoid the house style of AI-generated pages: centered everything, purple gradients, uniformly rounded corners, Inter. Those read as machine-made on sight.
  
-## 5. Build it as one file
- 
-Write a single self-contained HTML file — all CSS inline, no build step, no npm, no framework. Then open it:
- 
+## 5. Hand the build to Sonnet
+
+You do steps 1 to 4 yourself: you know the subject, so you pick the confusion, the frame, the form, the titles and every fact. The HTML itself is typing, and a cheaper model types it. Don't write the HTML yourself.
+
+Write a build brief to `/tmp/showme/{topic}-{yyyymmdd}/brief.md`:
+
+- the file path to write (`/tmp/clear-{topic}-{yyyymmdd}.html`) and the medium (screen, print to A4, or both)
+- the frame and form you chose, in one line each
+- the sections in order: each with its asserting title, its form (stat card, table, quadrant, steps, `<details>`...), and the exact text and numbers it carries
+- what the accent color marks
+
+The brief carries all content. The builder decides layout, never content: it doesn't add, cut or reword facts.
+
+Spawn the builder with the subagents helper:
+
 ```
-Bash(open /tmp/clear-{topic}-{yyyymmdd}.html)
+S=~/.pi/agent/skills/subagents/sub
+W=/tmp/showme/{topic}-{yyyymmdd}
+$S spawn showme-build --cwd "$W" --model github-copilot/claude-sonnet-5.5 --thinking high --tools read,write,edit,bash \
+  "Read ~/.pi/agent/skills/show-me/SKILL.md sections 4 and 5b (craft rules and build rules), then $W/brief.md. Build the file the brief names. Don't change content. For print, render a PDF with headless Chrome and check every page with: swift ~/.pi/agent/skills/show-me/pdf-pages.swift print.pdf page. Reply with the file path, the page count, and anything in the brief you couldn't follow."
+$S wait showme-build
 ```
+
+When it's done, look at the result yourself (a screenshot or the page PNGs), send fixes with `$S resume showme-build "..."`, then `$S kill showme-build` and open the file.
+
+## 5b. Build rules (for the builder)
+ 
+Write a single self-contained HTML file — all CSS inline, no build step, no npm, no framework.
+
+For print: `@page{size:A4;margin:16mm}`, `print-color-adjust:exact`, keep a heading with its first paragraph or row (`break-inside:avoid` on small units, never on whole sections), repeat table headers with `thead{display:table-header-group}`, expand `<details>`.
  
 Cost hierarchy, cheapest first: **pure HTML/CSS for quantities and comparisons** (div-width bars, grid waffles, quadrants, stat cards, `<details>`) → **inline SVG for simple custom geometry** (slopegraphs, connectors, annotation layers) → **one Mermaid CDN include, and only for branching and flow** (frequency trees, decision trees, causal loops), where hand-computing connector coordinates is genuinely expensive.
  
