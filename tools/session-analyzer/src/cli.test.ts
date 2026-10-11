@@ -76,7 +76,7 @@ describe("cli", () => {
 		expect(result.code).toBe(0);
 		expect(result.stdout).toMatch(/^session tool-errors {2}turns 1 {2}requests 5/m);
 		expect(result.stdout).toMatch(/errors 2 \(read 2\) {2}missing path 2 {2}failed commands 0 {2}immediate repeats 1 of 1 identical/);
-		expect(result.stdout).toMatch(/^after an error: 1 identical, 0 same target, 0 other target, 1 other tool, 0 none$/m);
+		expect(result.stdout).toMatch(/^after an error: 1 identical, 0 same target, 0 other target, 1 other tool, 0 none; after a missing path: 1 identical, 0 same target, 0 other target, 1 other tool, 0 none$/m);
 		expect(result.stdout).toMatch(/^ {3}1 {4}5/m);
 		expect(result.stdout).toMatch(/turn 1 {2}warn {2}repeated_identical_call: 1 identical call\(s\) repeated immediately/);
 		expect(result.stdout).toMatch(/turn 1 {2}warn {2}error_follow_up: after an error: 1 identical retry\(ies\), 0 guess\(es\) at another target/);
@@ -93,6 +93,7 @@ describe("cli", () => {
 		expect(result.stdout).toMatch(/^gpt-5\.6-terra +53 +\$/m);
 		expect(result.stdout).toMatch(/tool errors 3 \(read 2, bash 1\): 2 missing-path, 1 failed commands, 1 immediate identical repeats \(2 identical calls in all\)/);
 		expect(result.stdout).toMatch(/^after an error, the next request was: 1 identical, 0 same target, 0 other target, 1 other tool, 1 none$/m);
+		expect(result.stdout).toMatch(/^after a missing-path error: 1 identical, 0 same target, 0 other target, 1 other tool, 0 none$/m);
 		expect(result.stdout).toMatch(/compactions 2; largest request context 70k tokens/);
 		expect(result.stdout).toMatch(/responses over 2,000 chars: 2; over 5,000: 1/);
 		const json = JSON.parse(run(["summary", fixtures, "--json", "--limit", "2", "--exclude", "compaction"]).stdout);
@@ -110,7 +111,7 @@ describe("cli", () => {
 		expect(lines[lines.length - 1]).toMatch(/^3 sessions ranked; a component is the session's rate per 100 requests/);
 		const json = JSON.parse(run(["rank", fixtures, "--json"]).stdout);
 		const aborted = json.find((row: { path: string }) => row.path === join(fixtures, "aborted-and-cache-drop.jsonl"));
-		expect(aborted).toMatchObject({ score: 1, components: { aborted: 1 }, rates: { aborted: 50 } });
+		expect(aborted).toMatchObject({ score: 1, components: { aborted: 1 }, rates: { aborted: 10 } });
 		expect(json[0].score).toBe(1);
 		expect(json[json.length - 1].score).toBe(0);
 		expect(json.map((row: { score: number }) => row.score)).toEqual([...json.map((row: { score: number }) => row.score)].sort((a, b) => b - a));

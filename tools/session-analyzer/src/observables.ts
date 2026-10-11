@@ -110,6 +110,8 @@ export interface TurnObservables {
 	immediateRepeats: number;
 	/** What the agent did in the next request after each tool error (see ErrorFollowUp). */
 	errorFollowUps: Record<ErrorFollowUp, number>;
+	/** The same, for missing-path errors only: `otherTarget` here is a guessed path. */
+	missingPathFollowUps: Record<ErrorFollowUp, number>;
 	rereadAfterCompaction: number;
 	/** Distinct paths whose read result is still in the final request's context after a later edit. */
 	staleFilesInContext: string[];
@@ -292,6 +294,7 @@ function observeTurn(
 	let repeatedIdenticalCalls = 0;
 	let immediateRepeats = 0;
 	const errorFollowUps = emptyFollowUps();
+	const missingPathFollowUps = emptyFollowUps();
 	let rereadAfterCompaction = 0;
 	let textBeforeFirstTool = 0;
 	let sawToolCall = false;
@@ -381,7 +384,10 @@ function observeTurn(
 		for (const result of rp.toolResults) {
 			if (!result.isError) continue;
 			const failed = callById.get(result.id);
-			if (failed) errorFollowUps[classifyFollowUp(failed, nextCalls)]++;
+			if (!failed) continue;
+			const followUp = classifyFollowUp(failed, nextCalls);
+			errorFollowUps[followUp]++;
+			if (isMissingPathError(result.text)) missingPathFollowUps[followUp]++;
 		}
 	});
 	for (const entry of session.branch) {
@@ -418,6 +424,7 @@ function observeTurn(
 		repeatedIdenticalCalls,
 		immediateRepeats,
 		errorFollowUps,
+		missingPathFollowUps,
 		rereadAfterCompaction,
 		staleFilesInContext: last ? staleFiles(last, state.lastWriteByPath, readPositions, branchIndex) : [],
 		textBeforeFirstTool,
@@ -537,6 +544,7 @@ export interface SessionSummary {
 	repeatedIdenticalCalls: number;
 	immediateRepeats: number;
 	errorFollowUps: Record<ErrorFollowUp, number>;
+	missingPathFollowUps: Record<ErrorFollowUp, number>;
 	errorRunMax: number;
 	repeatedErrorText: number;
 	rereadAfterCompaction: number;
@@ -612,6 +620,7 @@ export function sessionSummary(session: Session): SessionSummary {
 		repeatedIdenticalCalls: sum((turn) => turn.repeatedIdenticalCalls),
 		immediateRepeats: sum((turn) => turn.immediateRepeats),
 		errorFollowUps: sumFollowUps(turns.map((turn) => turn.errorFollowUps)),
+		missingPathFollowUps: sumFollowUps(turns.map((turn) => turn.missingPathFollowUps)),
 		errorRunMax: turns.reduce((max, turn) => Math.max(max, turn.errorRunMax), 0),
 		repeatedErrorText: sum((turn) => turn.repeatedErrorText),
 		rereadAfterCompaction: sum((turn) => turn.rereadAfterCompaction),
@@ -662,6 +671,7 @@ export interface DirectorySummary {
 	failedCommands: number;
 	immediateRepeats: number;
 	errorFollowUps: Record<ErrorFollowUp, number>;
+	missingPathFollowUps: Record<ErrorFollowUp, number>;
 	repeatedIdenticalCalls: number;
 	compactions: number;
 	peakContextTokens: number;
@@ -710,6 +720,7 @@ export function directorySummary(summaries: SessionSummary[]): DirectorySummary 
 		failedCommands: sum((summary) => summary.failedCommands),
 		immediateRepeats: sum((summary) => summary.immediateRepeats),
 		errorFollowUps: sumFollowUps(summaries.map((summary) => summary.errorFollowUps)),
+		missingPathFollowUps: sumFollowUps(summaries.map((summary) => summary.missingPathFollowUps)),
 		repeatedIdenticalCalls: sum((summary) => summary.repeatedIdenticalCalls),
 		compactions: sum((summary) => summary.compactions),
 		peakContextTokens: summaries.reduce((max, summary) => Math.max(max, summary.peakContextTokens), 0),

@@ -19,18 +19,19 @@ function session(id: string, requests: number, aborted: number): SessionSummary 
 
 describe("rates and scales", () => {
 	it("expresses each signal per 100 requests", () => {
-		expect(rateOf(summarize("abortedAndCacheDrop"), "aborted")).toBe(50);
-		expect(rateOf(summarize("correctionTurn"), "correctionTurns")).toBeCloseTo(100 / 7, 6);
+		expect(rateOf(summarize("abortedAndCacheDrop"), "aborted")).toBe(10);
+		expect(rateOf(summarize("correctionTurn"), "correctionTurns")).toBe(5);
 		expect(rateOf(summarize("linear"), "rewinds")).toBe(0);
-		expect(rateOf(session("short", 10, 2), "aborted")).toBe(20);
+		expect(rateOf(session("short", 10, 2), "aborted")).toBe(10);
+		expect(rateOf(session("floor", 20, 2), "aborted")).toBe(10);
 		expect(rateOf(session("long", 200, 2), "aborted")).toBe(1);
 	});
 
 	it("scales by the 90th percentile, falling back to the maximum and then to one", () => {
 		const scales = rankScales([session("a", 10, 1), session("b", 10, 2), session("c", 10, 0), session("d", 10, 5)]);
-		expect(scales.aborted).toBe(50);
+		expect(scales.aborted).toBe(25);
 		expect(scales.rewinds).toBe(1);
-		expect(rankScales([session("only", 10, 3)]).aborted).toBe(30);
+		expect(rankScales([session("only", 10, 3)]).aborted).toBe(15);
 		expect(rankScales([]).aborted).toBe(1);
 	});
 });
@@ -42,7 +43,7 @@ describe("scoreSession", () => {
 		const ranked = rankSessions([short, long]);
 		expect(ranked.map((row) => row.path)).toEqual(["short.jsonl", "long.jsonl"]);
 		expect(ranked[0].components.aborted).toBe(1);
-		expect(ranked[1].components.aborted).toBeCloseTo(1 / 20, 3);
+		expect(ranked[1].components.aborted).toBeCloseTo(1 / 10, 3);
 	});
 
 	it("clips every component at one and scores context above 200k on its own", () => {
@@ -61,7 +62,7 @@ describe("scoreSession", () => {
 		const scored = scoreSession(bad, rankScales([bad, summarize("linear")]));
 		expect(scored.components).toEqual({ correctionTurns: 1, rewinds: 0, errorRuns: 1, repeatedIdenticalCalls: 1, aborted: 1, largeContext: 1 });
 		expect(scored.score).toBe(5);
-		expect(scored.rates.correctionTurns).toBeCloseTo((5 / 12) * 100, 2);
+		expect(scored.rates.correctionTurns).toBe(25);
 		const mild = new SessionBuilder();
 		mild.user("go");
 		mild.assistant({ text: "ok", usage: { input: 250_000 } });

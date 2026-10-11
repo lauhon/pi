@@ -167,6 +167,7 @@ describe("turnObservables", () => {
 		b.assistant({ text: "The tests fail; should I continue?" });
 		const result = turnObservables(parseSession(b.toJsonl(), "follow.jsonl"));
 		expect(result[0].errorFollowUps).toEqual({ identical: 0, sameTarget: 1, otherTarget: 1, otherTool: 1, none: 1 });
+		expect(result[0].missingPathFollowUps).toEqual({ identical: 0, sameTarget: 0, otherTarget: 1, otherTool: 1, none: 0 });
 		expect(result[0].toolErrors).toBe(4);
 		const aborted = turns("abortedAndCacheDrop");
 		expect(aborted[1].errorFollowUps).toEqual({ identical: 0, sameTarget: 0, otherTarget: 0, otherTool: 0, none: 1 });
@@ -248,6 +249,7 @@ describe("sessionSummary", () => {
 		const summary = sessionSummary(load("toolErrors"));
 		expect(summary).toMatchObject({ turns: 1, requests: 5, toolCalls: 4, toolErrors: 2, missingPathErrors: 2, failedCommands: 0, immediateRepeats: 1, repeatedIdenticalCalls: 1, errorRunMax: 2, compactions: 0, forks: 0 });
 		expect(summary.errorFollowUps).toEqual({ identical: 1, sameTarget: 0, otherTarget: 0, otherTool: 1, none: 0 });
+		expect(summary.missingPathFollowUps).toEqual(summary.errorFollowUps);
 		expect(summary.modelMix).toEqual([{ model: "gpt-5.6-terra", requests: 5, cost: summary.cost, outputTokens: 500 }]);
 		expect(summary.topRequestCostShare).toBeCloseTo(0.2, 6);
 		expect(summary.top5RequestCostShare).toBeCloseTo(1, 6);
@@ -300,6 +302,7 @@ describe("directorySummary", () => {
 		expect(result.modelMix[0]).toMatchObject({ model: "gpt-5.6-terra", requests: result.requests, requestShare: 1, costShare: 1 });
 		expect(result).toMatchObject({ toolErrors: 3, toolErrorsByName: { read: 2, bash: 1 }, missingPathErrors: 2, failedCommands: 1, immediateRepeats: 1, repeatedIdenticalCalls: 2, compactions: 1, peakContextTokens: 70_000, longResponses: 2, veryLongResponses: 1, aborted: 2 });
 		expect(result.errorFollowUps).toEqual({ identical: 1, sameTarget: 0, otherTarget: 0, otherTool: 1, none: 1 });
+		expect(result.missingPathFollowUps).toEqual({ identical: 1, sameTarget: 0, otherTarget: 0, otherTool: 1, none: 0 });
 		expect(result.sessionsBySize[0].path).toBe("compaction.jsonl");
 		expect(directorySummary([])).toMatchObject({ sessions: 0, requests: 0, cost: 0, topSessionCostShare: 0, modelMix: [] });
 	});

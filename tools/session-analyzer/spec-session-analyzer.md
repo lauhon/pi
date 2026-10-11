@@ -295,16 +295,59 @@ The 25 August sub-runs are gone: `list ~/.pi --until 2026-08-13` finds no sessio
 `agent/sessions` for that period, so their run dirs were deleted with the sessions inside. The
 sub-run part of the audit cannot be reproduced. If sub-runs are to be audited again, `sub` must
 copy `session.jsonl` out of the run dir before cleanup (a one-line change for step 4 to decide).
-Still open: one session with 738 requests and zero recorded cost (an unpriced model would also
-lower every cost total it took part in).
+
+**Third run, exact snapshot** (`--until 2026-08-12T09:02:50Z`, the audit session's start,
+`--exclude 2026-08-12T09-02-50`): 15 sessions, which is the audit's 15 interactive ones. The
+analyzer's GPT-5.6 figures plus the audit's own numbers for the 25 sub-runs reconcile to the
+audit exactly:
+
+| Metric | Audit | Analyzer | Difference = the 25 sub-runs |
+| --- | --- | --- | --- |
+| GPT-5.6 turns | 2,047 | 1,378 (Sol 1,077, Terra 296, Luna 5) | 669 (Sol 82, Terra 368, Luna 219) |
+| GPT-5.6 cost | $149.38 | $136.15 | $13.23 |
+| Top session | $71.50, 47.9% | $71.50, 50.8% of the interactive total; 47.9% of $149.38 | denominator only |
+| Top five | 81.1% = $121.1 | 85.9% = $120.9 | same five sessions |
+| Compactions | 2 | 2 | none |
+| Largest context | 314k | 314k | none |
+| Tool errors | ~200 (79 read, 76 bash, 40 edit) | 133 (68, 60, 7) | ~67, of which 33 edit |
+| Failed commands | 70 | 58 | 12 |
+| Missing-path | 73 | 80 | pattern table wider than `ENOENT` |
+| "Immediately repeated an identical tool call" | 55 | 54 immediate identical repeats | matches: the audit's metric was immediate identical repeats of any call |
+| Responses over 2,000 / 5,000 chars | 52 / 11 | 37 / 3 | 15 / 8, the children's final reports |
+
+Step 3's acceptance holds for everything on disk; every residual is the deleted sub-run
+population. Three things the run adds to the audit:
+
+- The 55 were not error retries. After an error the next request was: 0 identical, 8 same
+  target, 72 other target, 20 other tool, 33 none. The immediate identical repeats are
+  successful calls repeated (polling with `cmux read-screen` and sleeps, audit finding 10). The
+  audit's finding 6 ("exact edits are retried blindly") is not in the data as identical retries;
+  it is the 8 same-target variants.
+- Of 80 missing-path errors, the next request guessed another path far more often than it
+  listed the directory (see `missingPathFollowUps` in the summary). That is the baseline for the
+  `AGENTS.md` rule "never guess filenames after a missing-path error" added on 2026-08-12, and
+  `summary ./sessions ~/.pi/pi-sub-runs --since 2026-08-13` gives the after. This is the first
+  rule-heatmap cell (deferred section) and costs one command.
+- `correction_turn` found 0 in the 15 sessions, while the audit's finding 7 describes two user
+  corrections. Either the cues miss how this user corrects, or the turns before were short.
+  Step 4 should note the wording of real corrections and extend `CORRECTION_CUES`.
+
+Still open: five sessions from March 2026 record zero cost for every request (the 738-request one
+among them), so cost was not recorded by the pi version of that time; cost totals that include
+March undercount.
 
 `rank.ts` scores a session for the labeling pass: a plain sum of `correction_turn`, `rewind`,
 `error_run` (turns with 3 or more consecutive errors), `repeated_identical_call` and `aborted`,
-each as a rate per 100 requests divided by the 90th percentile of that rate over the sessions
-being ranked and clipped to 1, plus peak context over 200k in units of 100k, clipped to 1. The
-first real run (2026-10-11) showed why rates: with fixed caps on raw counts, every session above
-about 300 requests saturated rewinds, repeats and aborts, and the ranking was by length. The
-formula is a starting point and lives in one function with a comment that says so.
+each as a rate per 100 requests (the denominator floored at 20 requests) divided by the 90th
+percentile of that rate over the sessions being ranked and clipped to 1, plus peak context over
+200k in units of 100k, clipped to 1. The first real run (2026-10-11) showed why rates: with
+fixed caps on raw counts, every session above about 300 requests saturated rewinds, repeats and
+aborts, and the ranking was by length. The second run showed why the floor: a four-request
+session with one abort was a 25% rate and led the list. Repeats per request dominate the real
+ranking and are mostly polling, so the labeling pass should say whether that signal is quality
+or only cost; the most expensive sessions since August do not rank high by rate and have to be
+labeled on cost alone. The formula is a starting point and lives in one function with a
+comment that says so.
 
 ## Labeling pass (step 4)
 

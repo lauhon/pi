@@ -30,14 +30,21 @@ export interface RankedSession {
 
 export const RATE_SIGNALS: RateSignal[] = ["correctionTurns", "rewinds", "errorRuns", "repeatedIdenticalCalls", "aborted"];
 
+/**
+ * Floor for the rate denominator. One aborted request in a four-request session is a 25% rate
+ * and would top every ranking; with the floor it counts as 5%, so tiny sessions need several
+ * signals before they outrank a long session with a real pattern.
+ */
+export const RANK_MIN_REQUESTS = 20;
+
 function count(summary: SessionSummary, signal: RateSignal): number {
 	if (signal === "errorRuns") return summary.turnObservables.filter((turn) => turn.errorRunMax >= THRESHOLDS.errorRunWarn).length;
 	return summary[signal];
 }
 
-/** Signal count per 100 assistant requests, so a 1,600-request session is not "bad" by size alone. */
+/** Signal count per 100 assistant requests (at least RANK_MIN_REQUESTS), so a 1,600-request session is not "bad" by size alone. */
 export function rateOf(summary: SessionSummary, signal: RateSignal): number {
-	return summary.requests > 0 ? (count(summary, signal) / summary.requests) * 100 : 0;
+	return summary.requests > 0 ? (count(summary, signal) / Math.max(summary.requests, RANK_MIN_REQUESTS)) * 100 : 0;
 }
 
 /** The 90th percentile of each rate over the sessions being ranked; the maximum when p90 is 0; 1 when every session is 0. */
