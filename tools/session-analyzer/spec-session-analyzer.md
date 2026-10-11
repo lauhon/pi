@@ -1,6 +1,13 @@
 # Spec: session analyzer
 
 > Status: **Draft** · 2026-10-11 · Owner: @laurenz · follows up [reports/gpt-5.6-session-audit-2026-08-12.md](../../reports/gpt-5.6-session-audit-2026-08-12.md)
+>
+> Steps 1 to 3 were implemented on 2026-10-11 in a container that had the repo but no
+> `sessions/` directory and no `pi` binary. Every fact and answer marked "source" below was
+> checked against the installed package `@earendil-works/pi-coding-agent@1.1.0` (dist and
+> docs), not against real session files. The first run on the machine that has `sessions/`
+> is still owed: `npm run analyze -- inspect <file>` prints the facts for Q1 to Q5 on its
+> first lines.
 
 ## Goal
 
@@ -55,32 +62,40 @@ whose firing changes the next action in the session earns a live model call.
 ## Verified facts (2026-10-11)
 
 F1 to F8 were checked against the pi docs and source on `earendil-works/pi` `main`, not against a
-running pi. Step 1 re-checks every field name against real files in `sessions/`.
+running pi. Rows marked "1.1.0" were re-checked on 2026-10-11 against the installed package. The
+re-check against real files in `sessions/` is still pending (see the status note at the top).
 
 | # | Fact | Consequence |
 | --- | --- | --- |
-| F1 | Session files are JSONL, version 3, one entry per line, each with `type`, `id`, `parentId`, `timestamp`. Entry types: `session` (header), `message`, `model_change`, `thinking_level_change`, `usage`, `compaction`, `context_edit`, `branch_summary`, `custom`, `custom_message`, `label`, `session_info`. | Everything below is derivable from the file. No instrumentation needed for the offline layer. |
-| F2 | pi exports `SessionManager.open(path)`, `getBranch()`, `buildContextEntries()`, `buildSessionContext()`, and the standalone functions `loadEntriesFromFile`, `parseSessionEntries`, `migrateSessionEntries`, `buildContextEntries(entries, leafId, byId)`, `buildSessionContext`, `getLatestCompactionEntry` (`packages/coding-agent/src/core/session-manager.ts`). | We do not re-implement tree walking or compaction rules. Context at any point = pi's own projection with the leaf set to that point. |
-| F3 | The system message entry stores `sections` (seen: `preamble`, `tools`, `skills`, `cwd`) plus `toolsAdded[]` with name, description, parameters, and `toolsRemoved[]`. | Inventory by source is exact for the system part, and tool descriptions are measurable one by one. |
+| F1 | Session files are JSONL, version 3, one entry per line, each with `type`, `id`, `parentId`, `timestamp`. Entry types: `session` (header), `message`, `model_change`, `thinking_level_change`, `usage`, `compaction`, `context_edit`, `branch_summary`, `custom`, `custom_message`, `label`, `session_info`. 1.1.0: this is exactly the `SessionEntry` union in `session-manager.d.ts`. | Everything below is derivable from the file. No instrumentation needed for the offline layer. |
+| F2 | pi exports `SessionManager`, `buildContextEntries(entries, leafId, byId)`, `buildSessionProjection` (same, plus the source entry of every message), `buildSessionContext`, `sessionEntryToContextMessages`, `parseSessionEntries`, `migrateSessionEntries` and `getLatestCompactionEntry` from the package root. 1.1.0: `loadEntriesFromFile` is not exported from the root, and it appends a newline to a file whose last line has none. The leaf pi resumes a file at is the last entry in the file. | We do not re-implement tree walking or compaction rules. `load.ts` reads the file itself, feeds `parseSessionEntries` and `migrateSessionEntries`, and takes the context at a request point from `buildSessionProjection` with the leaf set to the parent of the assistant entry. Real files are never written. |
+| F3 | The system prompt is a `message` entry whose `message.role` is `system`, with `content`, `sections`, `toolsAdded[]` (name, description, parameters) and `toolsRemoved[]`. Later system messages patch `sections` by name (`null` removes one) and add or remove tools; a compaction stores a complete `systemMessage` checkpoint and the kept range drops the earlier system messages. 1.1.0 (`system-prompt.js`): the keys pi writes are `preamble`, `tools`, `rules`, `docs`, `addendum`, `project_context`, `skills`, `cwd`, plus any extension section by name. | Inventory replays every system message of a context in order (the rule of pi-ai `getCurrentSystemMessage`), so the system part is exact and tool descriptions are measurable one by one. The key set of older pi versions is read off real files by `inspect`. |
 | F4 | Assistant messages carry `provider`, `model`, `stopReason` and `usage` with `input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens`, `cost`. | Context size per request comes from `usage`, no tokenizer needed. Cache hit ratio per turn is `cacheRead / (input + cacheRead + cacheWrite)`. |
 | F5 | `compaction` entries carry `summary`, `firstKeptEntryId`, `tokensBefore`, optional `usage` and `systemMessage`. `branch_summary` carries `fromId` and `summary`. `context_edit` carries `targetId` and `replacement`. | Compaction count, size before, and summary length are direct. Forks are visible as entries sharing a `parentId`. Prunes are visible. |
 | F6 | `custom_message` entries carry `customType`, `content`, `display`, and are part of model context. `custom` entries are not. | Extension injections (for example `subagents-monitor` steer notices) are attributable by `customType`. |
-| F7 | This repository is `~/.pi/agent`. Sessions live in `sessions/--<cwd-with-dashes>--/<timestamp>_<id>.jsonl` and are gitignored. | The tool runs from the repo root and defaults to `./sessions`. Fixtures must be sanitized copies, never the originals. |
+| F7 | This repository is `~/.pi/agent`. Interactive sessions live in `sessions/--<cwd-with-dashes>--/<timestamp>_<id>.jsonl` and are gitignored. Sub-run children (`skills/subagents/sub`) start pi with `--session ~/.pi/pi-sub-runs/<run>/session.jsonl` and write the parent's session id to `<run>/parent`, so they are not under `sessions/` at all. | The CLI takes one or more roots and walks them recursively, so `./sessions ~/.pi/pi-sub-runs` covers both populations the August audit counted (15 interactive, 25 sub-runs). Fixtures must be sanitized copies, never the originals. |
 | F8 | Live extension API: `turn_end` and `agent_before_settle` are boundary events carrying `context.llmMessages` (the exact request), `message`, `toolResults`, `outcome`; handlers may return `entries` (`custom`, `custom_message`, `context_edit`, `compaction`) and `continue: true`. `input` can `transform` or mark input `handled`. `ctx.modelRegistry.complete()` and `streamSimple()` make nested model calls. | Step 6 (live adapter) and the deferred model checks have their hooks. Nothing in steps 1-5 needs them. |
-| F9 | `@earendil-works/pi-coding-agent` latest on npm is 1.1.0. This repo's devDependency is the old `@mariozechner/pi-coding-agent ^0.57.1`, used only for types. Extensions import `@earendil-works/pi-coding-agent` at runtime through pi's own loader. | Add `@earendil-works/pi-coding-agent` as a devDependency pinned to the installed pi version (`pi --version`) so the loader parses files with the same code that wrote them. |
+| F9 | `@earendil-works/pi-coding-agent` latest on npm is 1.1.0, which is also `settings.json` `lastChangelogVersion`. Extensions import it at runtime through pi's own loader. `extensions/premium-usage.disabled/*.ts` still import the old `@mariozechner/pi-coding-agent` for types. | Pinned to `1.1.0` as a devDependency (exact). `pi --version` could not be run where step 1 was done; confirm the pin on the machine that runs pi. The old package stays until the parked extension drops it. |
 | F10 | The August audit parsed `model`, `usage`, tool-call, tool-error and `stopReason` fields locally, then reviewed 40 sessions in eight batches by hand. Its findings: a few sessions dominate cost (top 5 = 81%), only 2 compactions in 40 sessions, contexts up to 314k tokens, 200 tool errors of which 73 missing paths and 55 immediate identical retries, 52 responses over 2,000 characters. | Every one of those is an observable below. The first run of the analyzer should reproduce those numbers for the same period as its acceptance test. |
+| F11 | Node 22 runs `.ts` files directly (type stripping), and `npm run analyze` is `node tools/session-analyzer/src/cli.ts`. 1.1.0: importing the package from a plain script works. | No extra runtime dependency. The analyzer uses erasable TypeScript only: `import type` for types, no enums, no parameter properties. |
+| F12 | 1.1.0 (`agent-session.js`): `/skill:name args` is expanded inside the user message to `<skill name="..." location="...">body</skill>` followed by the args. A model-initiated load is a `read` (or `bash`) of the `<location>` path listed in the `skills` section, which only carries name, description and location. | Two attribution rules cover skills: a tool result for a listed location, and a user message starting with `<skill name=`. |
 
 ## Architecture
 
 ```
 tools/session-analyzer/
   spec-session-analyzer.md     this file
+  src/types.ts                 the data contract below, plain shapes only
   src/load.ts                  file -> Session (header, entries, active branch, request points)
   src/inventory.ts             request point -> Segment[] (context by source)
   src/observables.ts           turn -> Observables; Session -> SessionSummary
   src/rank.ts                  SessionSummary -> bad-signal score, for the labeling pass
+  src/sanitize.ts              session -> same-size copy with text bodies replaced
   src/report.ts                JSON out, terminal tables
   src/cli.ts                   `analyze <subcommand>`
+  fixtures/build.ts            fixture builder (synthetic JSONL with a chosen shape)
+  fixtures/shapes.ts           the named shapes the tests and the CLI demo use
+  fixtures/generate.ts         writes shapes to fixtures/*.jsonl; a test keeps them in sync
   fixtures/                    synthetic sessions + sanitized real ones
   *.test.ts                    collocated
 ```
@@ -105,11 +120,13 @@ Rules:
 
 ```ts
 type SegmentSource =
-  | "system.preamble" | "system.tools" | "system.skills" | "system.cwd" | "system.other"
-  | "tool_description"            // one per toolsAdded entry
+  | "system.preamble" | "system.tools" | "system.rules" | "system.docs" | "system.addendum"
+  | "system.project_context" | "system.skills" | "system.cwd" | "system.other"   // other: label = key
+  | "tool_description"            // one per tool in force, label = tool name
   | "user" | "assistant.text" | "assistant.thinking" | "assistant.tool_call"
-  | "tool_result"                 // label = tool name
+  | "tool_result"                 // label = tool name, or skill:<name> for a skill file
   | "custom_message"              // label = customType
+  | "bash_execution"              // `!command` runs, sent as user text
   | "compaction_summary" | "branch_summary";
 
 interface Segment {
@@ -121,18 +138,22 @@ interface Segment {
   ageTurns: number;      // turns since the entry was added
 }
 
+// load.ts produces these; inventory.ts turns a RequestPoint into Segment[].
 interface RequestPoint {
   index: number;
-  turnIndex: number;
+  turnIndex: number;           // a turn starts at every user message on the active branch
   assistantEntryId: string;
+  timestamp: string;
   provider: string;
   model: string;
-  thinkingLevel?: string;
-  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
-  segments: Segment[];
-  toolCalls: { id: string; name: string; argsHash: string; path?: string }[];
-  toolResults: { id: string; name: string; chars: number; isError: boolean }[];
+  thinkingLevel?: string;      // from the message, else the last thinking_level_change before it
+  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number; contextTokens: number };
   stopReason: string;
+  textChars: number;           // visible text in the assistant message
+  thinkingChars: number;
+  toolCalls: { id: string; name: string; argsHash: string; path?: string; args: object }[];
+  toolResults: { id: string; name: string; entryId: string; chars: number; isError: boolean; text: string }[];
+  context: { entries: SessionEntry[]; messages: AgentMessage[]; sourceEntryIds: string[] };  // pi's projection
 }
 
 interface Finding {
@@ -303,15 +324,30 @@ onward only become interesting against real files in `sessions/` on the machine 
 - D6 pi's own loader and projection for parsing, pinned to the installed pi version, with a
   conformance test so a pi upgrade that changes projection rules shows up as a failing test.
 
-## Open questions (settle in step 1 against real files)
+## Open questions (settled against pi 1.1.0 source on 2026-10-11; real-file check pending)
 
-- Q1 Which `sections` key carries `AGENTS.md` and other context files, and whether the key set
-  differs across pi versions present in `sessions/`.
-- Q2 Whether thinking blocks are persisted in assistant content, per provider.
-- Q3 How sub-run child sessions appear: same `sessions/` dir, and how to link parent and child
-  (`subagents-monitor` writes a `parent` file in the run dir; the session header has
-  `parentSession` only for forks).
-- Q4 Which session versions exist in `sessions/` and whether `migrateSessionEntries` handles all
-  of them.
-- Q5 Whether a skill load is always a `read` of `skills/<name>/SKILL.md`, or whether pi inlines
-  skills in other ways that need another attribution rule.
+`inspect <file>` prints one line per question before its table, so the first run on real files
+confirms or corrects each answer.
+
+- Q1 `AGENTS.md` and the other context files land in the `project_context` section, each file
+  wrapped as `<project_instructions path="...">...</project_instructions>`. The key set is
+  decided by the pi version that wrote the session; for 1.1.0 it is the list in F3. Which other
+  key sets exist in `sessions/` is unverified: `inspect` prints the keys at the last request.
+- Q2 Thinking is persisted as `thinking` content blocks (`thinking` text, optional
+  `thinkingSignature`, `redacted`) whenever the provider returns them; a redacted block has no
+  text. Which providers return text is unverified: `inspect` prints thinking characters per
+  provider and model.
+- Q3 Sub-run children are not in `sessions/`: `sub` starts them on
+  `~/.pi/pi-sub-runs/<run>/session.jsonl` and writes the parent's session id to `<run>/parent`.
+  The header's `parentSession` appears only for `/fork`, `/clone` and `newSession({ parentSession })`.
+  Parent and child link through `<run>/parent` = the parent header's `id`. The CLI takes several
+  roots, so pass both directories. Unverified against real run dirs.
+- Q4 pi 1.1.0 knows versions 1, 2 and 3 and `migrateSessionEntries` upgrades 1 to 2 (assigning
+  random ids, so a v1 file is not stable across loads) and 2 to 3 (`hookMessage` role becomes
+  `custom`). Which versions exist in `sessions/` is unverified: `inspect` and `list --json` print
+  the version.
+- Q5 Two ways only: the model reads the `<location>` path listed in the `skills` section (a
+  `read` or `bash` tool result), or the user types `/skill:name`, which inlines
+  `<skill name="..." location="...">` into the user message (F12). Attribution: a tool result
+  for a listed location is `tool_result` with label `skill:<name>`; a user message starting with
+  `<skill name=` is `user` with label `skill:<name>`.
