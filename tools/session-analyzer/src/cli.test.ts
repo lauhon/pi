@@ -75,7 +75,7 @@ describe("cli", () => {
 		const result = run(["summary", join(fixtures, "tool-errors.jsonl")]);
 		expect(result.code).toBe(0);
 		expect(result.stdout).toMatch(/^session tool-errors {2}turns 1 {2}requests 5/m);
-		expect(result.stdout).toMatch(/errors 2 \(read 2\) {2}missing path 2 {2}failed commands 0 {2}immediate repeats 1 of 1 identical/);
+		expect(result.stdout).toMatch(/errors 2 \(read 2\) {2}missing path 2 {2}failed commands 0 \(\+0 failing test runs\) {2}immediate repeats 1 of 1 identical/);
 		expect(result.stdout).toMatch(/^after an error: 1 identical, 0 same target, 0 other target, 1 other tool, 0 none; after a missing path: 1 identical, 0 same target, 0 other target, 1 other tool, 0 none$/m);
 		expect(result.stdout).toMatch(/^ {3}1 {4}5/m);
 		expect(result.stdout).toMatch(/turn 1 {2}warn {2}repeated_identical_call: 1 identical call\(s\) repeated immediately/);
@@ -91,7 +91,9 @@ describe("cli", () => {
 		expect(result.stdout).toMatch(/^17 sessions \(.*fixtures: 17\), 54 assistant requests, recorded cost \$/m);
 		expect(result.stdout).toMatch(/cost concentration: most expensive session \d+\.\d%, five most expensive \d+\.\d%/);
 		expect(result.stdout).toMatch(/^gpt-5\.6-terra +53 +\$/m);
-		expect(result.stdout).toMatch(/tool errors 3 \(read 2, bash 1\): 2 missing-path, 1 failed commands, 1 immediate identical repeats \(2 identical calls in all\)/);
+		expect(result.stdout).toMatch(/tool errors 3 \(read 2, bash 1\): 2 missing-path, 1 failed commands \(\+0 failing test runs\), 1 immediate identical repeats \(2 identical calls in all\)/);
+		expect(result.stdout).toMatch(/^corrections 1, rewinds 2, errored 1, interrupted 1, questions 1/m);
+		expect(result.stdout).toMatch(/^gpt-5\.6-terra +53 +\$[\d.]+ +5\.7 +3\.8 +1\/2 +1\/2 +0\/2 +1\.9 +0\.0 +1\.9 +1\.9 +3\.8$/m);
 		expect(result.stdout).toMatch(/^after an error, the next request was: 1 identical, 0 same target, 0 other target, 1 other tool, 1 none$/m);
 		expect(result.stdout).toMatch(/^after a missing-path error: 1 identical, 0 same target, 0 other target, 1 other tool, 0 none$/m);
 		expect(result.stdout).toMatch(/compactions 2; largest request context 70k tokens/);

@@ -17,7 +17,7 @@ import { relative } from "node:path";
 import { parseArgs } from "node:util";
 import { inventoryDirectory, inventoryRequestPoint, inventorySession, type RequestInventory, type SourceTotal } from "./inventory.ts";
 import { findSessionFiles, loadSession, replaySystemMessages } from "./load.ts";
-import { directorySummary, formatFollowUps, sessionSummary, type SessionSummary, type TurnObservables } from "./observables.ts";
+import { directorySummary, formatFollowUps, sessionSummary, type ModelStats, type SessionSummary, type TurnObservables } from "./observables.ts";
 import { rankSessions } from "./rank.ts";
 import { fmtCost, fmtDate, fmtDuration, fmtInt, fmtPct, fmtTokens, renderTable, sessionJson, shortModel, toJson, type Row } from "./report.ts";
 import { sanitizeJsonl } from "./sanitize.ts";
@@ -505,9 +505,9 @@ function summary(roots: string[], options: CliOptions): CliResult {
 		`session ${result.id}  turns ${result.turns}  requests ${result.requests}  cost ${fmtCost(result.cost)}${result.otherCost > 0 ? ` (+${fmtCost(result.otherCost)} compaction/usage)` : ""}  peak context ${fmtTokens(result.peakContextTokens)}  duration ${fmtDuration(result.durationMs)}`,
 		`compactions ${result.compactions}${result.compactions > 0 ? ` (tokens before: ${result.compactionTokensBefore.map(fmtTokens).join(", ")})` : ""}  forks ${result.forks}  branch summaries ${result.branchSummaries}  model changes ${result.modelChanges}  thinking changes ${result.thinkingChanges}`,
 		`models: ${result.modelMix.map((row) => `${shortModel(row.model)} ${row.requests} req ${fmtCost(row.cost)}`).join("; ")}  top request ${fmtPct(result.topRequestCostShare)} of cost, top 5 ${fmtPct(result.top5RequestCostShare)}`,
-		`tool calls ${result.toolCalls} (${countList(result.toolCallsByName)})  errors ${result.toolErrors}${result.toolErrors > 0 ? ` (${countList(result.toolErrorsByName)})` : ""}  missing path ${result.missingPathErrors}  failed commands ${result.failedCommands}  immediate repeats ${result.immediateRepeats} of ${result.repeatedIdenticalCalls} identical`,
+		`tool calls ${result.toolCalls} (${countList(result.toolCallsByName)})  errors ${result.toolErrors}${result.toolErrors > 0 ? ` (${countList(result.toolErrorsByName)})` : ""}  missing path ${result.missingPathErrors}  failed commands ${result.failedCommands} (+${result.failedTestRuns} failing test runs)  immediate repeats ${result.immediateRepeats} of ${result.repeatedIdenticalCalls} identical`,
 		`after an error: ${formatFollowUps(result.errorFollowUps)}; after a missing path: ${formatFollowUps(result.missingPathFollowUps)}`,
-		`questions ${result.askedQuestions}  narration-only ${result.narrationOnlyTurns}  corrections ${result.correctionTurns}  rewinds ${result.rewinds}  aborted ${result.aborted}  tests run ${result.testsRun}  edit churn ${result.editChurn}  stale-read turns ${result.staleFileTurns}  rereads after compaction ${result.rereadAfterCompaction}  long responses ${result.longResponses} (>5k: ${result.veryLongResponses})  cache hit mean ${fmtPct(result.cacheHitRatioMean)}  drops ${result.cacheDrops}`,
+		`questions ${result.askedQuestions}  narration-only ${result.narrationOnlyTurns}  corrections ${result.correctionTurns}  rewinds ${result.rewinds}  errored ${result.errored}  interrupted ${result.interrupted}  tests run ${result.testsRun}  edit churn ${result.editChurn}  stale-read turns ${result.staleFileTurns}  rereads after compaction ${result.rereadAfterCompaction}  long responses ${result.longResponses} (>5k: ${result.veryLongResponses})  cache hit mean ${fmtPct(result.cacheHitRatioMean)}  drops ${result.cacheDrops}`,
 		`injections: ${countList(result.injections) || "none"}`,
 		"",
 		renderTable(turnColumns(), result.turnObservables.map(turnRow)),
@@ -620,17 +620,57 @@ function summaryOfDirectory(roots: string[], options: CliOptions): CliResult {
 		"",
 		mix,
 		"",
-		`tool errors ${fmtInt(result.toolErrors)}${result.toolErrors > 0 ? ` (${countList(result.toolErrorsByName)})` : ""}: ${result.missingPathErrors} missing-path, ${result.failedCommands} failed commands, ${result.immediateRepeats} immediate identical repeats (${result.repeatedIdenticalCalls} identical calls in all)`,
+		`tool errors ${fmtInt(result.toolErrors)}${result.toolErrors > 0 ? ` (${countList(result.toolErrorsByName)})` : ""}: ${result.missingPathErrors} missing-path, ${result.failedCommands} failed commands (+${result.failedTestRuns} failing test runs), ${result.immediateRepeats} immediate identical repeats (${result.repeatedIdenticalCalls} identical calls in all)`,
 		`after an error, the next request was: ${formatFollowUps(result.errorFollowUps)}`,
 		`after a missing-path error: ${formatFollowUps(result.missingPathFollowUps)}`,
 		`compactions ${result.compactions}; largest request context ${fmtTokens(result.peakContextTokens)} tokens`,
 		`responses over 2,000 chars: ${result.longResponses}; over 5,000: ${result.veryLongResponses}`,
-		`corrections ${result.correctionTurns}, rewinds ${result.rewinds}, aborted ${result.aborted}, questions ${result.askedQuestions}, narration-only turns ${result.narrationOnlyTurns}, test runs ${result.testsRun}`,
+		`corrections ${result.correctionTurns}, rewinds ${result.rewinds}, errored ${result.errored}, interrupted ${result.interrupted}, questions ${result.askedQuestions}, narration-only turns ${result.narrationOnlyTurns}, test runs ${result.testsRun}`,
+		"",
+		"per model, per 100 requests (guess = same tool on another path after a missing-path error; enumerate = another tool):",
+		modelTable(result.byModel.slice(0, options.limit ?? 10)),
 		"",
 		"most expensive sessions:",
 		top,
 	];
 	return { stdout: `${lines.join("\n")}\n`, stderr: warnings.join("\n"), code: 0 };
+}
+
+function modelTable(rows: ModelStats[]): string {
+	const right = "right" as const;
+	const per100 = (value: number, requests: number) => (requests > 0 ? ((value / requests) * 100).toFixed(1) : "-");
+	return renderTable(
+		[
+			{ key: "model", label: "model" },
+			{ key: "requests", label: "requests", align: right },
+			{ key: "cost", label: "cost", align: right },
+			{ key: "errors", label: "errors", align: right },
+			{ key: "missing", label: "missing path", align: right },
+			{ key: "guess", label: "guess", align: right },
+			{ key: "enumerate", label: "enumerate", align: right },
+			{ key: "stop", label: "stop", align: right },
+			{ key: "failed", label: "failed cmd", align: right },
+			{ key: "tests", label: "test fails", align: right },
+			{ key: "errored", label: "errored", align: right },
+			{ key: "interrupted", label: "interrupted", align: right },
+			{ key: "long", label: "long", align: right },
+		],
+		rows.map((row) => ({
+			model: row.model,
+			requests: fmtInt(row.requests),
+			cost: fmtCost(row.cost),
+			errors: per100(row.toolErrors, row.requests),
+			missing: per100(row.missingPathErrors, row.requests),
+			guess: `${row.missingPathFollowUps.otherTarget + row.missingPathFollowUps.identical}/${row.missingPathErrors}`,
+			enumerate: `${row.missingPathFollowUps.otherTool}/${row.missingPathErrors}`,
+			stop: `${row.missingPathFollowUps.none}/${row.missingPathErrors}`,
+			failed: per100(row.failedCommands, row.requests),
+			tests: per100(row.failedTestRuns, row.requests),
+			errored: per100(row.errored, row.requests),
+			interrupted: per100(row.interrupted, row.requests),
+			long: per100(row.longResponses, row.requests),
+		})),
+	);
 }
 
 // ── rank ───────────────────────────────────────────────────────────────────

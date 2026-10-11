@@ -99,6 +99,10 @@ export interface TurnObservables {
 	testsRun: number;
 	toolErrors: number;
 	toolErrorsByName: Record<string, number>;
+	/** Shell errors other than a failing test run. */
+	failedCommands: number;
+	/** Shell errors from a test runner command: expected information, not a tool failure. */
+	failedTestRuns: number;
 	/** Longest run of consecutive error results within the turn. */
 	errorRunMax: number;
 	/** Error results whose text equals an earlier error text in the session. */
@@ -121,11 +125,14 @@ export interface TurnObservables {
 	longResponses: number;
 	veryLongResponses: number;
 	correctionTurn: boolean;
+	/** Requests that ended with stopReason error (provider) or aborted (user interrupt). */
+	aborted: number;
+	errored: number;
+	interrupted: number;
 	/** Abandoned branches forking from an entry of this turn. */
 	rewinds: number;
 	/** Branch summaries appended in this turn (a rewind that kept a summary of the abandoned path). */
 	branchSummaries: number;
-	aborted: number;
 	cacheHitRatioMin: number;
 	cacheDrops: number;
 	modelChanges: number;
@@ -287,6 +294,8 @@ function observeTurn(
 	let editChurn = 0;
 	let testsRun = 0;
 	let toolErrors = 0;
+	let failedCommands = 0;
+	let failedTestRuns = 0;
 	let errorRun = 0;
 	let errorRunMax = 0;
 	let repeatedErrorText = 0;
@@ -301,6 +310,8 @@ function observeTurn(
 	let longResponses = 0;
 	let veryLongResponses = 0;
 	let aborted = 0;
+	let errored = 0;
+	let interrupted = 0;
 	let cacheDrops = 0;
 	let cacheHitRatioMin = Number.POSITIVE_INFINITY;
 	let lastRatio = previousRatio;
@@ -309,6 +320,8 @@ function observeTurn(
 
 	for (const rp of requests) {
 		models.add(rp.model);
+		if (rp.stopReason === "error") errored++;
+		if (rp.stopReason === "aborted") interrupted++;
 		if (rp.stopReason === "aborted" || rp.stopReason === "error") aborted++;
 		if (rp.textChars > THRESHOLDS.longResponseChars) longResponses++;
 		if (rp.textChars > THRESHOLDS.veryLongResponseChars) veryLongResponses++;
@@ -363,6 +376,7 @@ function observeTurn(
 				if (isTestCommand(command)) testsRun++;
 			}
 		}
+		const callById = new Map(rp.toolCalls.map((call) => [call.id, call]));
 		for (const result of rp.toolResults) {
 			if (!result.isError) {
 				errorRun = 0;
@@ -370,6 +384,10 @@ function observeTurn(
 			}
 			toolErrors++;
 			toolErrorsByName[result.name] = (toolErrorsByName[result.name] ?? 0) + 1;
+			if (SHELL_TOOLS.has(result.name)) {
+				if (isTestCommand(stringArg(callById.get(result.id)?.args.command) ?? "")) failedTestRuns++;
+				else failedCommands++;
+			}
 			errorRun++;
 			errorRunMax = Math.max(errorRunMax, errorRun);
 			if (isMissingPathError(result.text)) missingPathErrors++;
@@ -418,6 +436,8 @@ function observeTurn(
 		testsRun,
 		toolErrors,
 		toolErrorsByName,
+		failedCommands,
+		failedTestRuns,
 		errorRunMax,
 		repeatedErrorText,
 		missingPathErrors,
@@ -432,9 +452,11 @@ function observeTurn(
 		longResponses,
 		veryLongResponses,
 		correctionTurn: false,
+		aborted,
+		errored,
+		interrupted,
 		rewinds: 0,
 		branchSummaries: 0,
-		aborted,
 		cacheHitRatioMin: Number.isFinite(cacheHitRatioMin) ? cacheHitRatioMin : Number.NaN,
 		cacheDrops,
 		modelChanges: 0,
@@ -541,6 +563,7 @@ export interface SessionSummary {
 	toolErrorsByName: Record<string, number>;
 	missingPathErrors: number;
 	failedCommands: number;
+	failedTestRuns: number;
 	repeatedIdenticalCalls: number;
 	immediateRepeats: number;
 	errorFollowUps: Record<ErrorFollowUp, number>;
@@ -558,13 +581,107 @@ export interface SessionSummary {
 	correctionTurns: number;
 	rewinds: number;
 	aborted: number;
+	errored: number;
+	interrupted: number;
 	cacheDrops: number;
 	cacheHitRatioMean: number;
 	modelChanges: number;
 	thinkingChanges: number;
 	injections: Record<string, number>;
+	/** Errors, their follow-ups and response lengths attributed to the model of each request. */
+	byModel: ModelStats[];
 	findings: Finding[];
 	turnObservables: TurnObservables[];
+}
+
+/** Per-model request statistics, so a before/after comparison can hold the model fixed. */
+export interface ModelStats {
+	model: string;
+	requests: number;
+	cost: number;
+	toolErrors: number;
+	missingPathErrors: number;
+	failedCommands: number;
+	failedTestRuns: number;
+	errorFollowUps: Record<ErrorFollowUp, number>;
+	missingPathFollowUps: Record<ErrorFollowUp, number>;
+	errored: number;
+	interrupted: number;
+	longResponses: number;
+}
+
+function emptyModelStats(model: string): ModelStats {
+	return {
+		model,
+		requests: 0,
+		cost: 0,
+		toolErrors: 0,
+		missingPathErrors: 0,
+		failedCommands: 0,
+		failedTestRuns: 0,
+		errorFollowUps: emptyFollowUps(),
+		missingPathFollowUps: emptyFollowUps(),
+		errored: 0,
+		interrupted: 0,
+		longResponses: 0,
+	};
+}
+
+export function modelStats(session: Session): ModelStats[] {
+	const stats = new Map<string, ModelStats>();
+	for (const turn of session.turns) {
+		if (turnBeforeWindow(session, turn.index)) continue;
+		const requests = turn.requestIndexes.map((index) => session.requestPoints[index]);
+		requests.forEach((rp, i) => {
+			const row = stats.get(rp.model) ?? emptyModelStats(rp.model);
+			row.requests++;
+			row.cost += rp.usage.cost;
+			if (rp.stopReason === "error") row.errored++;
+			if (rp.stopReason === "aborted") row.interrupted++;
+			if (rp.textChars > THRESHOLDS.longResponseChars) row.longResponses++;
+			const nextCalls = requests[i + 1]?.toolCalls ?? [];
+			const callById = new Map(rp.toolCalls.map((call) => [call.id, call]));
+			for (const result of rp.toolResults) {
+				if (!result.isError) continue;
+				row.toolErrors++;
+				const failed = callById.get(result.id);
+				const missing = isMissingPathError(result.text);
+				if (missing) row.missingPathErrors++;
+				if (SHELL_TOOLS.has(result.name)) {
+					if (isTestCommand(stringArg(failed?.args.command) ?? "")) row.failedTestRuns++;
+					else row.failedCommands++;
+				}
+				if (!failed) continue;
+				const followUp = classifyFollowUp(failed, nextCalls);
+				row.errorFollowUps[followUp]++;
+				if (missing) row.missingPathFollowUps[followUp]++;
+			}
+			stats.set(rp.model, row);
+		});
+	}
+	return [...stats.values()].sort((a, b) => b.cost - a.cost || b.requests - a.requests);
+}
+
+export function mergeModelStats(lists: ModelStats[][]): ModelStats[] {
+	const merged = new Map<string, ModelStats>();
+	for (const list of lists) {
+		for (const row of list) {
+			const target = merged.get(row.model) ?? emptyModelStats(row.model);
+			target.requests += row.requests;
+			target.cost += row.cost;
+			target.toolErrors += row.toolErrors;
+			target.missingPathErrors += row.missingPathErrors;
+			target.failedCommands += row.failedCommands;
+			target.failedTestRuns += row.failedTestRuns;
+			target.errorFollowUps = sumFollowUps([target.errorFollowUps, row.errorFollowUps]);
+			target.missingPathFollowUps = sumFollowUps([target.missingPathFollowUps, row.missingPathFollowUps]);
+			target.errored += row.errored;
+			target.interrupted += row.interrupted;
+			target.longResponses += row.longResponses;
+			merged.set(row.model, target);
+		}
+	}
+	return [...merged.values()].sort((a, b) => b.cost - a.cost || b.requests - a.requests);
 }
 
 export function sessionSummary(session: Session): SessionSummary {
@@ -616,7 +733,8 @@ export function sessionSummary(session: Session): SessionSummary {
 		toolErrors: sum((turn) => turn.toolErrors),
 		toolErrorsByName,
 		missingPathErrors: sum((turn) => turn.missingPathErrors),
-		failedCommands: [...SHELL_TOOLS].reduce((total, name) => total + (toolErrorsByName[name] ?? 0), 0),
+		failedCommands: sum((turn) => turn.failedCommands),
+		failedTestRuns: sum((turn) => turn.failedTestRuns),
 		repeatedIdenticalCalls: sum((turn) => turn.repeatedIdenticalCalls),
 		immediateRepeats: sum((turn) => turn.immediateRepeats),
 		errorFollowUps: sumFollowUps(turns.map((turn) => turn.errorFollowUps)),
@@ -634,11 +752,14 @@ export function sessionSummary(session: Session): SessionSummary {
 		correctionTurns: turns.filter((turn) => turn.correctionTurn).length,
 		rewinds: sum((turn) => turn.rewinds),
 		aborted: sum((turn) => turn.aborted),
+		errored: sum((turn) => turn.errored),
+		interrupted: sum((turn) => turn.interrupted),
 		cacheDrops: sum((turn) => turn.cacheDrops),
 		cacheHitRatioMean: ratios.length > 0 ? ratios.reduce((total, ratio) => total + ratio, 0) / ratios.length : Number.NaN,
 		modelChanges: session.entryTypeCounts.model_change ?? 0,
 		thinkingChanges: session.entryTypeCounts.thinking_level_change ?? 0,
 		injections: merge((turn) => turn.injections),
+		byModel: modelStats(session),
 		findings,
 		turnObservables: turns,
 	};
@@ -669,6 +790,7 @@ export interface DirectorySummary {
 	toolErrorsByName: Record<string, number>;
 	missingPathErrors: number;
 	failedCommands: number;
+	failedTestRuns: number;
 	immediateRepeats: number;
 	errorFollowUps: Record<ErrorFollowUp, number>;
 	missingPathFollowUps: Record<ErrorFollowUp, number>;
@@ -680,9 +802,12 @@ export interface DirectorySummary {
 	correctionTurns: number;
 	rewinds: number;
 	aborted: number;
+	errored: number;
+	interrupted: number;
 	askedQuestions: number;
 	narrationOnlyTurns: number;
 	testsRun: number;
+	byModel: ModelStats[];
 	sessionsBySize: { path: string; cost: number; requests: number; peakContextTokens: number }[];
 }
 
@@ -718,6 +843,7 @@ export function directorySummary(summaries: SessionSummary[]): DirectorySummary 
 		toolErrorsByName,
 		missingPathErrors: sum((summary) => summary.missingPathErrors),
 		failedCommands: sum((summary) => summary.failedCommands),
+		failedTestRuns: sum((summary) => summary.failedTestRuns),
 		immediateRepeats: sum((summary) => summary.immediateRepeats),
 		errorFollowUps: sumFollowUps(summaries.map((summary) => summary.errorFollowUps)),
 		missingPathFollowUps: sumFollowUps(summaries.map((summary) => summary.missingPathFollowUps)),
@@ -729,9 +855,12 @@ export function directorySummary(summaries: SessionSummary[]): DirectorySummary 
 		correctionTurns: sum((summary) => summary.correctionTurns),
 		rewinds: sum((summary) => summary.rewinds),
 		aborted: sum((summary) => summary.aborted),
+		errored: sum((summary) => summary.errored),
+		interrupted: sum((summary) => summary.interrupted),
 		askedQuestions: sum((summary) => summary.askedQuestions),
 		narrationOnlyTurns: sum((summary) => summary.narrationOnlyTurns),
 		testsRun: sum((summary) => summary.testsRun),
+		byModel: mergeModelStats(summaries.map((summary) => summary.byModel)),
 		sessionsBySize: summaries
 			.map((summary) => ({ path: summary.path, cost: summary.cost, requests: summary.requests, peakContextTokens: summary.peakContextTokens }))
 			.sort((a, b) => b.cost - a.cost),

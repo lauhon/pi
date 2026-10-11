@@ -218,6 +218,15 @@ Surprises so far, from the source and the fixtures; the real-file run will add t
 - X4 A `custom_message` and a `bashExecution` do not start a turn: turn boundaries are user
   messages only. A steer typed while the agent runs does start one, which is the intended
   reading (a new instruction), but it splits one agent run across two turn rows.
+- X5 (real files, Aug 13 to Oct 11) The compaction setting took: 147 compactions, no request
+  above 252k, every large session peaking at 200k to 211k. Size moved from context to length:
+  the longest session has 1,606 requests at $187, more than the whole audit week.
+- X6 Polling repeats fell from 3.9 to 0.2 immediate identical repeats per 100 requests, and
+  missing-path errors from 5.7 to 0.84 per 100, across the model switch (see the rule cell).
+- X7 Cost concentration spread out (top session 15% of two months, top five 36%), while the
+  absolute top sessions grew; a few sessions per week still carry most of the spend.
+- X8 "Failed commands" was 75% of all tool errors after Aug 13 (463 of 616) and includes
+  failing test runs, which are the point of running tests; split since 2026-10-11.
 
 ## Observables (step 3)
 
@@ -232,7 +241,7 @@ and threshold in one place at the top of the file.
 | `files_read`, `files_edited` | distinct paths from `read`, `edit`, `write` arguments | tool call args |
 | `edit_churn` | same file edited more than once in a turn (+1 per repeat), or an edit whose old and new text swap an earlier edit's on that file (+1) | tool call args |
 | `tests_run` | bash command matching a test runner (`vitest`, `jest`, `pytest`, `npm test`, `go test`, `cargo test`); keep the list in one table | bash args |
-| `tool_error`, `error_run` | `isError` results by tool; the longest run of consecutive error results in the turn (`error_run` finding from 3); error texts equal to an earlier one in the session (`repeatedErrorText`); `bash`/`powershell` errors are the audit's "failed commands" | tool results |
+| `tool_error`, `error_run` | `isError` results by tool; the longest run of consecutive error results in the turn (`error_run` finding from 3); error texts equal to an earlier one in the session (`repeatedErrorText`); `bash`/`powershell` errors are `failedCommands`, except a failing test-runner command, which is `failedTestRuns` (the information the agent asked for, not a tool failure; the audit's "failed commands" is the sum) | tool results |
 | `missing_path_error` | error text matching no-such-file patterns | tool results (audit finding 3) |
 | `repeated_identical_call` | same tool and same `argsHash` (arguments with keys sorted) as an earlier call in the session; "immediate" when the previous tool call of the same turn was the identical one, so a user asking again is not a blind retry | tool calls (audit: 55 cases) |
 | `error_follow_up` | for each tool error, what the next request of the turn did: `identical` (same tool, same arguments), `sameTarget` (same tool, same path, changed arguments), `otherTarget` (same tool, another path or command: the path guessing of audit finding 3), `otherTool`, `none` (the agent stopped or asked); finding when identical or other-target follow-ups occur | tool calls and results |
@@ -243,7 +252,7 @@ and threshold in one place at the top of the file.
 | `long_response` | assistant messages whose visible text is over 2,000 and over 5,000 chars, counted per message | assistant content (audit metric) |
 | `correction_turn` (user) | user message of at most 300 chars opening with a cue from `CORRECTION_CUES` (no, not, don't, stop, wait, actually, I meant, that's not, wrong, undo, revert, instead, why did you, you didn't), after a turn with at least 3 tool calls, 1,000 chars of final text or a long response | user content |
 | `rewind` | abandoned branches forking from an entry of the turn (children of one `parentId` that are not on the active branch); `branch_summary` entries are counted separately so a rewind with a summary is one rewind | tree |
-| `aborted` | `stopReason` aborted or error | assistant |
+| `aborted` | `stopReason` aborted or error; reported split as `interrupted` (aborted: the user stopped the agent) and `errored` (error: the provider failed), since the two mean different things for labeling | assistant |
 | `cache_hit_ratio` | `cacheRead / (input + cacheRead + cacheWrite)` per request; the turn reports its minimum and the number of drops of 50 points or more between adjacent requests (across turn boundaries too) | usage |
 | `model_change`, `thinking_change` | entries of those types in the turn; the session counts every entry, including turn 0 setup | entries |
 | `injection` | `custom_message` by `customType`, chars | entries |
@@ -332,9 +341,24 @@ population. Three things the run adds to the audit:
   corrections. Either the cues miss how this user corrects, or the turns before were short.
   Step 4 should note the wording of real corrections and extend `CORRECTION_CUES`.
 
+**The first rule cell, before and after the Aug 12 rollout.** Before (the 15 sessions above),
+80 missing-path errors: the next request guessed another path 40 times, listed or searched 6
+times, and the turn ended 31 times. After (`--since 2026-08-13`: 378 sessions, 16,045 requests,
+$1,243.80), 135 missing-path errors: 82 guesses, 36 enumerations, 10 turn ends. Per request the
+errors fell seven-fold (5.7 to 0.84 per 100); among continued turns, enumerating rose from 12%
+to 29%. The model mix changed completely in the same window (GPT-5.6 Sol 90% of cost before,
+Claude Opus 5 and 5.5 77% after), so the before/after cannot attribute the drop to the rule;
+the per-model table (`byModel`) holds the model fixed, and GPT-5.6 has 2,556 requests after
+Aug 13 for that comparison.
+
 Still open: five sessions from March 2026 record zero cost for every request (the 738-request one
 among them), so cost was not recorded by the pi version of that time; cost totals that include
 March undercount.
+
+Per model: `byModel` in the session and directory summaries attributes requests, cost, errors,
+missing-path errors and their follow-ups, failed commands, failing test runs, errored and
+interrupted requests and long responses to the model of each request, so a before/after
+comparison of a rule can hold the model fixed. The directory summary prints it as a table.
 
 `rank.ts` scores a session for the labeling pass: a plain sum of `correction_turn`, `rewind`,
 `error_run` (turns with 3 or more consecutive errors), `repeated_identical_call` and `aborted`,

@@ -10,6 +10,8 @@ import {
 	isCorrectionText,
 	isMissingPathError,
 	isTestCommand,
+	mergeModelStats,
+	modelStats,
 	sessionSummary,
 	turnObservables,
 	type TurnObservables,
@@ -108,9 +110,9 @@ describe("turnObservables", () => {
 
 	it("counts aborted and errored requests, failed commands and cache drops", () => {
 		const result = turns("abortedAndCacheDrop");
-		expect(result[0]).toMatchObject({ aborted: 1, requests: 1 });
+		expect(result[0]).toMatchObject({ aborted: 1, errored: 1, interrupted: 0, requests: 1 });
 		expect(Number.isNaN(result[0].cacheHitRatioMin)).toBe(true);
-		expect(result[1]).toMatchObject({ aborted: 1, toolErrors: 1, toolErrorsByName: { bash: 1 }, missingPathErrors: 0, cacheDrops: 1, cacheHitRatioMin: 0 });
+		expect(result[1]).toMatchObject({ aborted: 1, errored: 0, interrupted: 1, toolErrors: 1, toolErrorsByName: { bash: 1 }, failedCommands: 1, failedTestRuns: 0, missingPathErrors: 0, cacheDrops: 1, cacheHitRatioMin: 0 });
 		expect(result[2]).toMatchObject({ aborted: 0, cacheDrops: 0 });
 		expect(result[2].cacheHitRatioMin).toBeCloseTo(9000 / 11000, 6);
 		expect(turns("linear").every((turn) => turn.aborted === 0 && turn.cacheDrops === 0)).toBe(true);
@@ -168,7 +170,7 @@ describe("turnObservables", () => {
 		const result = turnObservables(parseSession(b.toJsonl(), "follow.jsonl"));
 		expect(result[0].errorFollowUps).toEqual({ identical: 0, sameTarget: 1, otherTarget: 1, otherTool: 1, none: 1 });
 		expect(result[0].missingPathFollowUps).toEqual({ identical: 0, sameTarget: 0, otherTarget: 1, otherTool: 1, none: 0 });
-		expect(result[0].toolErrors).toBe(4);
+		expect(result[0]).toMatchObject({ toolErrors: 4, failedCommands: 0, failedTestRuns: 1 });
 		const aborted = turns("abortedAndCacheDrop");
 		expect(aborted[1].errorFollowUps).toEqual({ identical: 0, sameTarget: 0, otherTarget: 0, otherTool: 0, none: 1 });
 	});
@@ -281,10 +283,41 @@ describe("sessionSummary", () => {
 		expect(sessionSummary(load("correctionTurn"))).toMatchObject({ askedQuestions: 1, narrationOnlyTurns: 1, correctionTurns: 1, staleFileTurns: 3 });
 		expect(sessionSummary(load("rewindWithSummary"))).toMatchObject({ rewinds: 1, branchSummaries: 1, forks: 1 });
 		const aborted = sessionSummary(load("abortedAndCacheDrop"));
-		expect(aborted).toMatchObject({ aborted: 2, cacheDrops: 1, failedCommands: 1, toolErrors: 1 });
+		expect(aborted).toMatchObject({ aborted: 2, errored: 1, interrupted: 1, cacheDrops: 1, failedCommands: 1, failedTestRuns: 0, toolErrors: 1 });
 		expect(aborted.cacheHitRatioMean).toBeCloseTo((0.9 + 0 + 9000 / 11000) / 3, 6);
 		expect(sessionSummary(load("modelChange"))).toMatchObject({ modelChanges: 1, thinkingChanges: 2 });
 		expect(sessionSummary(load("longResponses"))).toMatchObject({ longResponses: 2, veryLongResponses: 1 });
+	});
+});
+
+describe("modelStats", () => {
+	it("attributes requests, errors and follow-ups to the model of each request", () => {
+		const b = new SessionBuilder();
+		b.user("find the adr");
+		b.toolTurn("read", { path: "/docs/adr-1.md" }, "ENOENT: no such file or directory", { isError: true, model: "gpt-5.6-sol" });
+		b.toolTurn("read", { path: "/docs/adr-001.md" }, "ENOENT: no such file or directory", { isError: true, model: "gpt-5.6-sol" });
+		b.modelChange("github-copilot", "claude-opus-5");
+		b.toolTurn("bash", { command: "ls /docs" }, "adr.md", { model: "claude-opus-5" });
+		b.toolTurn("bash", { command: "npm test" }, "Command failed with exit code 1", { isError: true, model: "claude-opus-5" });
+		b.assistant({ text: "x".repeat(2500), model: "claude-opus-5", stopReason: "error", errorMessage: "Unknown error" });
+		const stats = modelStats(parseSession(b.toJsonl(), "m.jsonl"));
+		expect(stats.map((row) => row.model)).toEqual(["claude-opus-5", "gpt-5.6-sol"]);
+		expect(stats[1]).toMatchObject({ requests: 2, toolErrors: 2, missingPathErrors: 2, failedCommands: 0, failedTestRuns: 0, errored: 0, interrupted: 0, longResponses: 0 });
+		expect(stats[1].missingPathFollowUps).toEqual({ identical: 0, sameTarget: 0, otherTarget: 1, otherTool: 1, none: 0 });
+		expect(stats[0]).toMatchObject({ requests: 3, toolErrors: 1, missingPathErrors: 0, failedCommands: 0, failedTestRuns: 1, errored: 1, longResponses: 1 });
+		expect(stats[0].errorFollowUps).toEqual({ identical: 0, sameTarget: 0, otherTarget: 0, otherTool: 0, none: 1 });
+		expect(modelStats(load("linear"))).toEqual([expect.objectContaining({ model: "gpt-5.6-terra", requests: 3, toolErrors: 0 })]);
+	});
+
+	it("merges rows across sessions by model", () => {
+		const merged = mergeModelStats([modelStats(load("modelChange")), modelStats(load("linear")), modelStats(load("toolErrors"))]);
+		expect(merged.map((row) => [row.model, row.requests])).toEqual([
+			["gpt-5.6-terra", 9],
+			["gpt-5.6-sol", 1],
+		]);
+		expect(merged[0].toolErrors).toBe(2);
+		expect(merged[0].missingPathFollowUps).toEqual({ identical: 1, sameTarget: 0, otherTarget: 0, otherTool: 1, none: 0 });
+		expect(mergeModelStats([])).toEqual([]);
 	});
 });
 
@@ -300,7 +333,8 @@ describe("directorySummary", () => {
 		expect(result.top5SessionCostShare).toBeCloseTo(1, 8);
 		expect(result.modelMix).toHaveLength(1);
 		expect(result.modelMix[0]).toMatchObject({ model: "gpt-5.6-terra", requests: result.requests, requestShare: 1, costShare: 1 });
-		expect(result).toMatchObject({ toolErrors: 3, toolErrorsByName: { read: 2, bash: 1 }, missingPathErrors: 2, failedCommands: 1, immediateRepeats: 1, repeatedIdenticalCalls: 2, compactions: 1, peakContextTokens: 70_000, longResponses: 2, veryLongResponses: 1, aborted: 2 });
+		expect(result).toMatchObject({ toolErrors: 3, toolErrorsByName: { read: 2, bash: 1 }, missingPathErrors: 2, failedCommands: 1, failedTestRuns: 0, immediateRepeats: 1, repeatedIdenticalCalls: 2, compactions: 1, peakContextTokens: 70_000, longResponses: 2, veryLongResponses: 1, aborted: 2, errored: 1, interrupted: 1 });
+		expect(result.byModel).toEqual([expect.objectContaining({ model: "gpt-5.6-terra", requests: result.requests, toolErrors: 3, missingPathErrors: 2, failedCommands: 1, errored: 1, interrupted: 1, longResponses: 2 })]);
 		expect(result.errorFollowUps).toEqual({ identical: 1, sameTarget: 0, otherTarget: 0, otherTool: 1, none: 1 });
 		expect(result.missingPathFollowUps).toEqual({ identical: 1, sameTarget: 0, otherTarget: 0, otherTool: 1, none: 0 });
 		expect(result.sessionsBySize[0].path).toBe("compaction.jsonl");
