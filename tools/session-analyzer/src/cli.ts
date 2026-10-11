@@ -17,7 +17,7 @@ import { relative } from "node:path";
 import { parseArgs } from "node:util";
 import { inventoryDirectory, inventoryRequestPoint, inventorySession, type RequestInventory, type SourceTotal } from "./inventory.ts";
 import { findSessionFiles, loadSession, replaySystemMessages } from "./load.ts";
-import { directorySummary, sessionSummary, type SessionSummary, type TurnObservables } from "./observables.ts";
+import { directorySummary, formatFollowUps, sessionSummary, type SessionSummary, type TurnObservables } from "./observables.ts";
 import { rankSessions } from "./rank.ts";
 import { fmtCost, fmtDate, fmtDuration, fmtInt, fmtPct, fmtTokens, renderTable, sessionJson, shortModel, toJson, type Row } from "./report.ts";
 import { sanitizeJsonl } from "./sanitize.ts";
@@ -505,7 +505,8 @@ function summary(roots: string[], options: CliOptions): CliResult {
 		`session ${result.id}  turns ${result.turns}  requests ${result.requests}  cost ${fmtCost(result.cost)}${result.otherCost > 0 ? ` (+${fmtCost(result.otherCost)} compaction/usage)` : ""}  peak context ${fmtTokens(result.peakContextTokens)}  duration ${fmtDuration(result.durationMs)}`,
 		`compactions ${result.compactions}${result.compactions > 0 ? ` (tokens before: ${result.compactionTokensBefore.map(fmtTokens).join(", ")})` : ""}  forks ${result.forks}  branch summaries ${result.branchSummaries}  model changes ${result.modelChanges}  thinking changes ${result.thinkingChanges}`,
 		`models: ${result.modelMix.map((row) => `${shortModel(row.model)} ${row.requests} req ${fmtCost(row.cost)}`).join("; ")}  top request ${fmtPct(result.topRequestCostShare)} of cost, top 5 ${fmtPct(result.top5RequestCostShare)}`,
-		`tool calls ${result.toolCalls} (${countList(result.toolCallsByName)})  errors ${result.toolErrors}${result.toolErrors > 0 ? ` (${countList(result.toolErrorsByName)})` : ""}  missing path ${result.missingPathErrors}  failed commands ${result.failedCommands}  retried after error ${result.immediateRetriesAfterError}  immediate repeats ${result.immediateRepeats} of ${result.repeatedIdenticalCalls} identical`,
+		`tool calls ${result.toolCalls} (${countList(result.toolCallsByName)})  errors ${result.toolErrors}${result.toolErrors > 0 ? ` (${countList(result.toolErrorsByName)})` : ""}  missing path ${result.missingPathErrors}  failed commands ${result.failedCommands}  immediate repeats ${result.immediateRepeats} of ${result.repeatedIdenticalCalls} identical`,
+		`after an error: ${formatFollowUps(result.errorFollowUps)}`,
 		`questions ${result.askedQuestions}  narration-only ${result.narrationOnlyTurns}  corrections ${result.correctionTurns}  rewinds ${result.rewinds}  aborted ${result.aborted}  tests run ${result.testsRun}  edit churn ${result.editChurn}  stale-read turns ${result.staleFileTurns}  rereads after compaction ${result.rereadAfterCompaction}  long responses ${result.longResponses} (>5k: ${result.veryLongResponses})  cache hit mean ${fmtPct(result.cacheHitRatioMean)}  drops ${result.cacheDrops}`,
 		`injections: ${countList(result.injections) || "none"}`,
 		"",
@@ -619,7 +620,8 @@ function summaryOfDirectory(roots: string[], options: CliOptions): CliResult {
 		"",
 		mix,
 		"",
-		`tool errors ${fmtInt(result.toolErrors)}${result.toolErrors > 0 ? ` (${countList(result.toolErrorsByName)})` : ""}: ${result.missingPathErrors} missing-path, ${result.failedCommands} failed commands, ${result.immediateRetriesAfterError} retried with an identical call right after failing (${result.immediateRepeats} immediate repeats of any kind, ${result.repeatedIdenticalCalls} identical calls in all)`,
+		`tool errors ${fmtInt(result.toolErrors)}${result.toolErrors > 0 ? ` (${countList(result.toolErrorsByName)})` : ""}: ${result.missingPathErrors} missing-path, ${result.failedCommands} failed commands, ${result.immediateRepeats} immediate identical repeats (${result.repeatedIdenticalCalls} identical calls in all)`,
+		`after an error, the next request was: ${formatFollowUps(result.errorFollowUps)}`,
 		`compactions ${result.compactions}; largest request context ${fmtTokens(result.peakContextTokens)} tokens`,
 		`responses over 2,000 chars: ${result.longResponses}; over 5,000: ${result.veryLongResponses}`,
 		`corrections ${result.correctionTurns}, rewinds ${result.rewinds}, aborted ${result.aborted}, questions ${result.askedQuestions}, narration-only turns ${result.narrationOnlyTurns}, test runs ${result.testsRun}`,

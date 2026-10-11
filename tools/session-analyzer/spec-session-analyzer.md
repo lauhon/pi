@@ -234,7 +234,8 @@ and threshold in one place at the top of the file.
 | `tests_run` | bash command matching a test runner (`vitest`, `jest`, `pytest`, `npm test`, `go test`, `cargo test`); keep the list in one table | bash args |
 | `tool_error`, `error_run` | `isError` results by tool; the longest run of consecutive error results in the turn (`error_run` finding from 3); error texts equal to an earlier one in the session (`repeatedErrorText`); `bash`/`powershell` errors are the audit's "failed commands" | tool results |
 | `missing_path_error` | error text matching no-such-file patterns | tool results (audit finding 3) |
-| `repeated_identical_call` | same tool and same `argsHash` (arguments with keys sorted) as an earlier call in the session; "immediate" when the previous tool call of the same turn was the identical one, so a user asking again is not a blind retry; `immediateRetriesAfterError` is the subset whose first call failed, which is what the audit counted | tool calls (audit: 55 cases) |
+| `repeated_identical_call` | same tool and same `argsHash` (arguments with keys sorted) as an earlier call in the session; "immediate" when the previous tool call of the same turn was the identical one, so a user asking again is not a blind retry | tool calls (audit: 55 cases) |
+| `error_follow_up` | for each tool error, what the next request of the turn did: `identical` (same tool, same arguments), `sameTarget` (same tool, same path, changed arguments), `otherTarget` (same tool, another path or command: the path guessing of audit finding 3), `otherTool`, `none` (the agent stopped or asked); finding when identical or other-target follow-ups occur | tool calls and results |
 | `reread_after_compaction` | `read` of a path that was read before the latest compaction on the branch; it also counts as a `repeated_identical_call` when the arguments match | tool calls, compaction |
 | `stale_file_in_context` | at the turn's last request: paths with a successful `read` result still in pi's projection that an `edit` or `write` followed; a context edit that drops the result clears it | request context, tool calls |
 | `text_before_first_tool` | chars of assistant text preceding the first tool call | assistant content |
@@ -277,11 +278,25 @@ session ($71.50, the audit's 47.9% of $149.38). The rest did not, for three reas
 | Sol 1,159, Terra 664, Luna 224 | Sol 1,727, Terra 314, Luna 5 | Both causes above: the missing sub-runs carried most Luna and Terra turns, later growth added Sol turns. |
 | 2 compactions | 10 | Compaction was enabled on Aug 12 near 250k; the sessions compacted after the snapshot. Fixed by truncation. |
 | 40 edit errors; 11 responses over 5k | 7; 3 | Mechanical edits and long final reports were sub-run work. |
-| 55 immediate identical repeats | 93 | Definition: the audit counted errors retried with an identical call. Added as `immediateRetriesAfterError`; the broader count stays as `immediateRepeats`. |
+| 55 immediate identical repeats | 93 | Definition: see the second run. |
 
-Still open after the fixes: where the 25 August sub-run sessions are (`list ~/.pi --until
-2026-08-13` finds every session file under `~/.pi` whatever its directory), and one session with
-738 requests and zero recorded cost (an unpriced model would also lower the cost total).
+**Second run, same day, with `--until` truncating and the audit session excluded** (16 sessions,
+1,644 requests, $158.98 of which $154.34 GPT-5.6):
+
+| Audit | Analyzer | Reading |
+| --- | --- | --- |
+| Sol 1,159, Terra 664, Luna 224 | Sol 1,300, Terra 314, Luna 5 | Sol is +141 turns and +$11: the `2026-08-12T08-15` session (307 requests, 2 compactions) was running while the audit was written. The audit session started at 09:02, so the exact snapshot is `--until 2026-08-12T09:02:50Z`. Terra −350 and Luna −219 are the 25 sub-runs. |
+| 2 compactions | 4 | The same running session; both of its compactions came after 09:02. |
+| 200 errors (79 read, 76 bash, 40 edit) | 134 (67, 60, 7) | The sub-runs did the mechanical edits: 33 of the 40 edit errors are theirs. |
+| 73 missing-path | 79 | `MISSING_PATH_PATTERNS` is wider than `ENOENT`. |
+| 55 "immediately repeated an identical tool call" | 0 identical retries after an error; 74 immediate repeats of successful calls | Real agents do not retry an error with the same arguments; after an error the next call changes `oldText` or guesses a new path, and the 74 are polling (`cmux read-screen`, sleeps). The audit must have matched on tool or file. Replaced by `errorFollowUps`: for every error, whether the next request was identical, the same tool on the same path, the same tool elsewhere, another tool, or nothing. The audit's 55 should reappear as identical + same target + other target. |
+
+The 25 August sub-runs are gone: `list ~/.pi --until 2026-08-13` finds no session outside
+`agent/sessions` for that period, so their run dirs were deleted with the sessions inside. The
+sub-run part of the audit cannot be reproduced. If sub-runs are to be audited again, `sub` must
+copy `session.jsonl` out of the run dir before cleanup (a one-line change for step 4 to decide).
+Still open: one session with 738 requests and zero recorded cost (an unpriced model would also
+lower every cost total it took part in).
 
 `rank.ts` scores a session for the labeling pass: a plain sum of `correction_turn`, `rewind`,
 `error_run` (turns with 3 or more consecutive errors), `repeated_identical_call` and `aborted`,

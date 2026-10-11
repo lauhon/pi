@@ -108,8 +108,8 @@ export interface TurnObservables {
 	repeatedIdenticalCalls: number;
 	/** Of those, calls whose previous tool call in the same turn was the identical one. */
 	immediateRepeats: number;
-	/** Immediate repeats whose first call had failed: the audit's "immediately repeated an identical tool call". */
-	immediateRetriesAfterError: number;
+	/** What the agent did in the next request after each tool error (see ErrorFollowUp). */
+	errorFollowUps: Record<ErrorFollowUp, number>;
 	rereadAfterCompaction: number;
 	/** Distinct paths whose read result is still in the final request's context after a later edit. */
 	staleFilesInContext: string[];
@@ -141,9 +141,38 @@ export interface Finding {
 	message: string;
 }
 
+/**
+ * The next request's answer to a tool error, in the same turn:
+ * - identical: the same tool with the same arguments (a blind retry)
+ * - sameTarget: the same tool on the same path with changed arguments (an edit variant, a read with an offset)
+ * - otherTarget: the same tool on another path or command (the path guessing of audit finding 3)
+ * - otherTool: a different tool (ls after ENOENT, a recovery)
+ * - none: no tool call followed in the turn (the agent stopped or asked)
+ */
+export type ErrorFollowUp = "identical" | "sameTarget" | "otherTarget" | "otherTool" | "none";
+
+export const ERROR_FOLLOW_UPS: ErrorFollowUp[] = ["identical", "sameTarget", "otherTarget", "otherTool", "none"];
+
+export function emptyFollowUps(): Record<ErrorFollowUp, number> {
+	return { identical: 0, sameTarget: 0, otherTarget: 0, otherTool: 0, none: 0 };
+}
+
+/** Classify the calls of the request after a failed call. The closest match among them wins. */
+export function classifyFollowUp(failed: ToolCallRecord, nextCalls: ToolCallRecord[]): ErrorFollowUp {
+	if (nextCalls.length === 0) return "none";
+	let best: ErrorFollowUp = "otherTool";
+	for (const call of nextCalls) {
+		if (call.name !== failed.name) continue;
+		if (call.argsHash === failed.argsHash) return "identical";
+		if (failed.path !== undefined && call.path === failed.path) best = "sameTarget";
+		else if (best !== "sameTarget") best = "otherTarget";
+	}
+	return best;
+}
+
 interface SessionCallState {
 	seenHashes: Map<string, string>;
-	previousCall?: { key: string; entryId: string; isError: boolean };
+	previousCall?: { key: string; entryId: string };
 	seenErrorTexts: Set<string>;
 	readBeforeCompaction: Set<string>;
 	readAfterCompaction: Set<string>;
@@ -262,7 +291,7 @@ function observeTurn(
 	let missingPathErrors = 0;
 	let repeatedIdenticalCalls = 0;
 	let immediateRepeats = 0;
-	let immediateRetriesAfterError = 0;
+	const errorFollowUps = emptyFollowUps();
 	let rereadAfterCompaction = 0;
 	let textBeforeFirstTool = 0;
 	let sawToolCall = false;
@@ -299,14 +328,11 @@ function observeTurn(
 			const key = callKey(call);
 			if (state.seenHashes.has(key)) {
 				repeatedIdenticalCalls++;
-				if (state.previousCall?.key === key) {
-					immediateRepeats++;
-					if (state.previousCall.isError) immediateRetriesAfterError++;
-				}
+				if (state.previousCall?.key === key) immediateRepeats++;
 			} else {
 				state.seenHashes.set(key, rp.assistantEntryId);
 			}
-			state.previousCall = { key, entryId: rp.assistantEntryId, isError: resultById.get(call.id)?.isError === true };
+			state.previousCall = { key, entryId: rp.assistantEntryId };
 			if (READ_TOOLS.has(call.name) && call.path) {
 				filesRead.add(call.path);
 				if (state.compactionSeen && state.readBeforeCompaction.has(call.path)) rereadAfterCompaction++;
@@ -349,6 +375,15 @@ function observeTurn(
 			else state.seenErrorTexts.add(normalized);
 		}
 	}
+	requests.forEach((rp, i) => {
+		const nextCalls = requests[i + 1]?.toolCalls ?? [];
+		const callById = new Map(rp.toolCalls.map((call) => [call.id, call]));
+		for (const result of rp.toolResults) {
+			if (!result.isError) continue;
+			const failed = callById.get(result.id);
+			if (failed) errorFollowUps[classifyFollowUp(failed, nextCalls)]++;
+		}
+	});
 	for (const entry of session.branch) {
 		if (entry.type === "custom_message" && session.turnOf.get(entry.id) === turn.index) {
 			const chars = typeof entry.content === "string" ? entry.content.length : JSON.stringify(entry.content).length;
@@ -382,7 +417,7 @@ function observeTurn(
 		missingPathErrors,
 		repeatedIdenticalCalls,
 		immediateRepeats,
-		immediateRetriesAfterError,
+		errorFollowUps,
 		rereadAfterCompaction,
 		staleFilesInContext: last ? staleFiles(last, state.lastWriteByPath, readPositions, branchIndex) : [],
 		textBeforeFirstTool,
@@ -445,7 +480,8 @@ export function sessionFindings(session: Session, turns: TurnObservables[]): Fin
 	const evidence = (turn: TurnObservables) => (turn.userEntryId ? [turn.userEntryId] : []);
 	for (const turn of turns) {
 		if (turn.errorRunMax >= THRESHOLDS.errorRunWarn) findings.push({ kind: "error_run", severity: "warn", turnIndex: turn.turnIndex, evidence: evidence(turn), message: `${turn.errorRunMax} consecutive tool errors` });
-		if (turn.immediateRepeats > 0) findings.push({ kind: "repeated_identical_call", severity: "warn", turnIndex: turn.turnIndex, evidence: evidence(turn), message: `${turn.immediateRepeats} identical call(s) repeated immediately, ${turn.immediateRetriesAfterError} after an error` });
+		if (turn.immediateRepeats > 0) findings.push({ kind: "repeated_identical_call", severity: "warn", turnIndex: turn.turnIndex, evidence: evidence(turn), message: `${turn.immediateRepeats} identical call(s) repeated immediately` });
+		if (turn.errorFollowUps.identical + turn.errorFollowUps.otherTarget > 0) findings.push({ kind: "error_follow_up", severity: "warn", turnIndex: turn.turnIndex, evidence: evidence(turn), message: `after an error: ${turn.errorFollowUps.identical} identical retry(ies), ${turn.errorFollowUps.otherTarget} guess(es) at another target` });
 		if (turn.missingPathErrors > 0) findings.push({ kind: "missing_path_error", severity: "info", turnIndex: turn.turnIndex, evidence: evidence(turn), message: `${turn.missingPathErrors} missing-path error(s)` });
 		if (turn.correctionTurn) findings.push({ kind: "correction_turn", severity: "warn", turnIndex: turn.turnIndex, evidence: evidence(turn), message: "user corrected the previous turn" });
 		if (turn.rewinds > 0) findings.push({ kind: "rewind", severity: "warn", turnIndex: turn.turnIndex, evidence: evidence(turn), message: `${turn.rewinds} rewind(s) from this turn` });
@@ -500,7 +536,7 @@ export interface SessionSummary {
 	failedCommands: number;
 	repeatedIdenticalCalls: number;
 	immediateRepeats: number;
-	immediateRetriesAfterError: number;
+	errorFollowUps: Record<ErrorFollowUp, number>;
 	errorRunMax: number;
 	repeatedErrorText: number;
 	rereadAfterCompaction: number;
@@ -575,7 +611,7 @@ export function sessionSummary(session: Session): SessionSummary {
 		failedCommands: [...SHELL_TOOLS].reduce((total, name) => total + (toolErrorsByName[name] ?? 0), 0),
 		repeatedIdenticalCalls: sum((turn) => turn.repeatedIdenticalCalls),
 		immediateRepeats: sum((turn) => turn.immediateRepeats),
-		immediateRetriesAfterError: sum((turn) => turn.immediateRetriesAfterError),
+		errorFollowUps: sumFollowUps(turns.map((turn) => turn.errorFollowUps)),
 		errorRunMax: turns.reduce((max, turn) => Math.max(max, turn.errorRunMax), 0),
 		repeatedErrorText: sum((turn) => turn.repeatedErrorText),
 		rereadAfterCompaction: sum((turn) => turn.rereadAfterCompaction),
@@ -599,6 +635,16 @@ export function sessionSummary(session: Session): SessionSummary {
 	};
 }
 
+export function sumFollowUps(items: Record<ErrorFollowUp, number>[]): Record<ErrorFollowUp, number> {
+	const total = emptyFollowUps();
+	for (const item of items) for (const key of ERROR_FOLLOW_UPS) total[key] += item[key];
+	return total;
+}
+
+export function formatFollowUps(followUps: Record<ErrorFollowUp, number>): string {
+	return `${followUps.identical} identical, ${followUps.sameTarget} same target, ${followUps.otherTarget} other target, ${followUps.otherTool} other tool, ${followUps.none} none`;
+}
+
 // ── Directory summary (the audit's quantitative section) ───────────────────
 
 export interface DirectorySummary {
@@ -615,7 +661,7 @@ export interface DirectorySummary {
 	missingPathErrors: number;
 	failedCommands: number;
 	immediateRepeats: number;
-	immediateRetriesAfterError: number;
+	errorFollowUps: Record<ErrorFollowUp, number>;
 	repeatedIdenticalCalls: number;
 	compactions: number;
 	peakContextTokens: number;
@@ -663,7 +709,7 @@ export function directorySummary(summaries: SessionSummary[]): DirectorySummary 
 		missingPathErrors: sum((summary) => summary.missingPathErrors),
 		failedCommands: sum((summary) => summary.failedCommands),
 		immediateRepeats: sum((summary) => summary.immediateRepeats),
-		immediateRetriesAfterError: sum((summary) => summary.immediateRetriesAfterError),
+		errorFollowUps: sumFollowUps(summaries.map((summary) => summary.errorFollowUps)),
 		repeatedIdenticalCalls: sum((summary) => summary.repeatedIdenticalCalls),
 		compactions: sum((summary) => summary.compactions),
 		peakContextTokens: summaries.reduce((max, summary) => Math.max(max, summary.peakContextTokens), 0),

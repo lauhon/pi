@@ -75,12 +75,14 @@ describe("cli", () => {
 		const result = run(["summary", join(fixtures, "tool-errors.jsonl")]);
 		expect(result.code).toBe(0);
 		expect(result.stdout).toMatch(/^session tool-errors {2}turns 1 {2}requests 5/m);
-		expect(result.stdout).toMatch(/errors 2 \(read 2\) {2}missing path 2 {2}failed commands 0 {2}retried after error 1 {2}immediate repeats 1 of 1 identical/);
+		expect(result.stdout).toMatch(/errors 2 \(read 2\) {2}missing path 2 {2}failed commands 0 {2}immediate repeats 1 of 1 identical/);
+		expect(result.stdout).toMatch(/^after an error: 1 identical, 0 same target, 0 other target, 1 other tool, 0 none$/m);
 		expect(result.stdout).toMatch(/^ {3}1 {4}5/m);
-		expect(result.stdout).toMatch(/turn 1 {2}warn {2}repeated_identical_call: 1 identical call\(s\) repeated immediately, 1 after an error/);
+		expect(result.stdout).toMatch(/turn 1 {2}warn {2}repeated_identical_call: 1 identical call\(s\) repeated immediately/);
+		expect(result.stdout).toMatch(/turn 1 {2}warn {2}error_follow_up: after an error: 1 identical retry\(ies\), 0 guess\(es\) at another target/);
 		const json = JSON.parse(run(["summary", join(fixtures, "tool-errors.jsonl"), "--json"]).stdout);
 		expect(json.turnObservables).toHaveLength(1);
-		expect(json.findings.map((finding: { kind: string }) => finding.kind)).toEqual(["repeated_identical_call", "missing_path_error"]);
+		expect(json.findings.map((finding: { kind: string }) => finding.kind)).toEqual(["repeated_identical_call", "error_follow_up", "missing_path_error"]);
 	});
 
 	it("summary of directories prints the audit-shaped block and honors --exclude and --limit", () => {
@@ -89,7 +91,8 @@ describe("cli", () => {
 		expect(result.stdout).toMatch(/^17 sessions \(.*fixtures: 17\), 54 assistant requests, recorded cost \$/m);
 		expect(result.stdout).toMatch(/cost concentration: most expensive session \d+\.\d%, five most expensive \d+\.\d%/);
 		expect(result.stdout).toMatch(/^gpt-5\.6-terra +53 +\$/m);
-		expect(result.stdout).toMatch(/tool errors 3 \(read 2, bash 1\): 2 missing-path, 1 failed commands, 1 retried with an identical call right after failing \(1 immediate repeats of any kind, 2 identical calls in all\)/);
+		expect(result.stdout).toMatch(/tool errors 3 \(read 2, bash 1\): 2 missing-path, 1 failed commands, 1 immediate identical repeats \(2 identical calls in all\)/);
+		expect(result.stdout).toMatch(/^after an error, the next request was: 1 identical, 0 same target, 0 other target, 1 other tool, 1 none$/m);
 		expect(result.stdout).toMatch(/compactions 2; largest request context 70k tokens/);
 		expect(result.stdout).toMatch(/responses over 2,000 chars: 2; over 5,000: 1/);
 		const json = JSON.parse(run(["summary", fixtures, "--json", "--limit", "2", "--exclude", "compaction"]).stdout);
