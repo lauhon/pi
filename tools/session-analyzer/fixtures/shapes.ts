@@ -154,6 +154,28 @@ export function noSystemMessage(): SessionBuilder {
 	return b;
 }
 
+/** A skill loaded both ways: the model reads the listed location, then the user types /skill:. */
+export function skillLoad(): SessionBuilder {
+	const b = new SessionBuilder({ id: "skill-load" });
+	b.system();
+	b.user("Open a terminal tab");
+	b.toolTurn("read", { path: "/repo/skills/cmux/SKILL.md" }, "# cmux\nUse `cmux send` to run commands.");
+	b.assistant({ text: "Loaded the cmux skill." });
+	b.user('<skill name="cmux" location="/repo/skills/cmux/SKILL.md">\nReferences are relative to /repo/skills/cmux.\n\n# cmux\nUse `cmux send`.\n</skill>\n\nopen a tab');
+	b.assistant({ text: "Opened." });
+	return b;
+}
+
+/** An extension adds its own prompt section and a free-form system content update. */
+export function customSection(): SessionBuilder {
+	const b = new SessionBuilder({ id: "custom-section" });
+	b.system();
+	b.system({ content: "Always answer in German.", sections: { guidelines: "<guidelines>\n- Ask when ambiguous\n</guidelines>" } });
+	b.user("Hallo");
+	b.assistant({ text: "Hallo!" });
+	return b;
+}
+
 export const SHAPES = {
 	linear,
 	fork,
@@ -166,6 +188,8 @@ export const SHAPES = {
 	contextEdit,
 	modelChange,
 	noSystemMessage,
+	skillLoad,
+	customSection,
 };
 
 export { defaultSections, defaultTools };

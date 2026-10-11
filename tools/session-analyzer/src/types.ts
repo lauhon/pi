@@ -124,3 +124,36 @@ export interface Session {
 	endedAt: string;
 	durationMs: number;
 }
+
+export type SegmentSource =
+	| "system.preamble"
+	| "system.tools"
+	| "system.rules"
+	| "system.docs"
+	| "system.addendum"
+	| "system.project_context"
+	| "system.skills"
+	| "system.cwd"
+	| "system.other"
+	| "tool_description"
+	| "user"
+	| "assistant.text"
+	| "assistant.thinking"
+	| "assistant.tool_call"
+	| "tool_result"
+	| "custom_message"
+	| "bash_execution"
+	| "compaction_summary"
+	| "branch_summary";
+
+export interface Segment {
+	source: SegmentSource;
+	/** Tool name, customType, section key, or skill:<name> when derivable. */
+	label?: string;
+	entryId: string;
+	/** Index in the request's message list. */
+	position: number;
+	chars: number;
+	/** Turns since the entry was added. */
+	ageTurns: number;
+}

@@ -4,12 +4,15 @@
  *   list <dir>...              one row per session file under the dirs (recursive)
  *   inspect <file>             one row per request point, plus the facts the spec's open questions ask for
  *   sanitize <file> [--out p]  write a same-size copy with every text body replaced (fixtures only)
+ *   inventory <file> [--turn N | --request i]   what filled the window, by source
+ *   inventory <dir>...         average share by source over every request under the dirs
  *
  * Output is a terminal table by default, or JSON with --json.
  */
 import { existsSync, statSync, writeFileSync, readFileSync } from "node:fs";
 import { relative } from "node:path";
 import { parseArgs } from "node:util";
+import { inventoryDirectory, inventoryRequestPoint, inventorySession, type RequestInventory, type SourceTotal } from "./inventory.ts";
 import { findSessionFiles, loadSession, replaySystemMessages } from "./load.ts";
 import { fmtCost, fmtDate, fmtDuration, fmtInt, fmtPct, fmtTokens, renderTable, sessionJson, shortModel, toJson, type Row } from "./report.ts";
 import { sanitizeJsonl } from "./sanitize.ts";
@@ -20,6 +23,9 @@ const USAGE = `usage: npm run analyze -- <subcommand> [args] [--json]
   list <dir>...                sessions under the dirs (recursive), one row each
   inspect <file>               request points of one session
   sanitize <file> [--out path] same-size copy with text bodies replaced
+  inventory <file> [--turn N | --request i]
+                               what filled the window at that request (default: session totals and peak)
+  inventory <dir>...           average share by source over every request
 `;
 
 export interface CliOptions {
@@ -78,6 +84,8 @@ export function run(argv: string[]): CliResult {
 				return inspect(requirePath(positionals[0], "inspect <file>"), options);
 			case "sanitize":
 				return sanitize(requirePath(positionals[0], "sanitize <file>"), options);
+			case "inventory":
+				return inventory(requirePaths(positionals, "inventory <file|dir>..."), options);
 			case undefined:
 			case "help":
 			case "--help":
@@ -324,6 +332,132 @@ function requestRow(rp: RequestPoint): Row {
 export function cacheHitRatio(rp: RequestPoint): number {
 	const total = rp.usage.input + rp.usage.cacheRead + rp.usage.cacheWrite;
 	return total === 0 ? Number.NaN : rp.usage.cacheRead / total;
+}
+
+// ── inventory ──────────────────────────────────────────────────────────────
+
+function inventory(roots: string[], options: CliOptions): CliResult {
+	const single = roots.length === 1 && statSync(roots[0]).isFile();
+	if (!single) return inventoryOfDirectory(roots, options);
+	const session = loadSession(roots[0]);
+	if (options.turn !== undefined || options.request !== undefined) {
+		const rp = selectRequest(session, options);
+		const request = inventoryRequestPoint(rp, session);
+		if (options.json) return { stdout: `${toJson(request)}\n`, stderr: "", code: 0 };
+		const lines = [
+			`request ${rp.index} (turn ${rp.turnIndex})  ${rp.provider}/${rp.model}  context ${fmtTokens(rp.usage.contextTokens)} tokens from usage, ${fmtInt(request.totalChars)} chars in ${request.segments.length} segments`,
+			"",
+			sourceTable(request.bySource),
+			"",
+			"largest segments:",
+			renderTable(
+				[
+					{ key: "position", label: "pos", align: "right" },
+					{ key: "source", label: "source" },
+					{ key: "label", label: "label", max: 30 },
+					{ key: "entryId", label: "entry" },
+					{ key: "chars", label: "chars", align: "right" },
+					{ key: "share", label: "share", align: "right" },
+					{ key: "ageTurns", label: "age", align: "right" },
+				],
+				[...request.segments]
+					.sort((a, b) => b.chars - a.chars)
+					.slice(0, 15)
+					.map((segment) => ({ ...segment, chars: fmtInt(segment.chars), share: fmtPct(request.totalChars > 0 ? segment.chars / request.totalChars : 0) })),
+			),
+		];
+		return { stdout: `${lines.join("\n")}\n`, stderr: "", code: 0 };
+	}
+	const summary = inventorySession(session);
+	if (options.json) return { stdout: `${toJson(summary)}\n`, stderr: "", code: 0 };
+	const lines = [
+		`session ${session.id}  ${summary.requestCount} requests  totals over every request, by source:`,
+		"",
+		sourceTable(summary.bySourceOnly, summary.meanShare),
+		"",
+		"largest labels (tool, customType, section, skill):",
+		sourceTable(summary.bySource.filter((total) => total.label !== undefined).slice(0, options.limit ?? 15)),
+		"",
+		`skills loaded: ${summary.skillsLoaded.join(", ") || "none"}`,
+		`injections: ${Object.entries(summary.injections).map(([type, chars]) => `${type} ${fmtInt(chars)} chars`).join(", ") || "none"}`,
+	];
+	if (summary.peak) {
+		lines.push("", `peak: request ${summary.peak.requestIndex} (turn ${summary.peak.turnIndex})  context ${fmtTokens(summary.peak.contextTokens)} tokens, ${fmtInt(summary.peak.totalChars)} chars`, "", sourceTable(summary.peak.bySource));
+	}
+	return { stdout: `${lines.join("\n")}\n`, stderr: "", code: 0 };
+}
+
+function selectRequest(session: Session, options: CliOptions): RequestPoint {
+	if (options.request !== undefined) {
+		const rp = session.requestPoints[options.request];
+		if (!rp) throw new Error(`no request ${options.request}; the session has ${session.requestPoints.length}`);
+		return rp;
+	}
+	const turn = session.turns[options.turn ?? -1];
+	if (!turn) throw new Error(`no turn ${options.turn}; the session has turns 1 to ${session.turns.length - 1}`);
+	const last = turn.requestIndexes[turn.requestIndexes.length - 1];
+	if (last === undefined) throw new Error(`turn ${options.turn} has no assistant request`);
+	return session.requestPoints[last];
+}
+
+function sourceTable(totals: SourceTotal[], meanShare?: Partial<Record<string, number>>): string {
+	const columns = [
+		{ key: "source", label: "source" },
+		{ key: "label", label: "label", max: 30 },
+		{ key: "count", label: "n", align: "right" as const },
+		{ key: "chars", label: "chars", align: "right" as const },
+		{ key: "share", label: "share", align: "right" as const },
+		...(meanShare ? [{ key: "meanShare", label: "mean share", align: "right" as const }] : []),
+		{ key: "tokensEstimate", label: "~tokens", align: "right" as const },
+		{ key: "position", label: "pos", align: "right" as const },
+		{ key: "maxAgeTurns", label: "age", align: "right" as const },
+	];
+	return renderTable(
+		columns,
+		totals.map((total) => ({
+			...total,
+			chars: fmtInt(total.chars),
+			share: fmtPct(total.share),
+			...(meanShare ? { meanShare: fmtPct(meanShare[total.source] ?? 0) } : {}),
+			tokensEstimate: fmtTokens(total.tokensEstimate),
+		})),
+	);
+}
+
+function inventoryOfDirectory(roots: string[], options: CliOptions): CliResult {
+	const { loaded, warnings } = loadDirectories(roots, options);
+	const summary = inventoryDirectory(loaded.map((entry) => entry.session));
+	if (options.json) return { stdout: `${toJson(summary)}\n`, stderr: warnings.join("\n"), code: 0 };
+	const rows: Row[] = (Object.keys(summary.meanShare) as (keyof typeof summary.meanShare)[])
+		.sort((a, b) => (summary.meanShare[b] ?? 0) - (summary.meanShare[a] ?? 0))
+		.map((source) => ({
+			source,
+			meanShare: fmtPct(summary.meanShare[source] ?? 0),
+			p50: fmtPct(summary.distribution[source]?.p50 ?? 0),
+			p90: fmtPct(summary.distribution[source]?.p90 ?? 0),
+			max: fmtPct(summary.distribution[source]?.max ?? 0),
+		}));
+	const table = renderTable(
+		[
+			{ key: "source", label: "source" },
+			{ key: "meanShare", label: "mean share", align: "right" },
+			{ key: "p50", label: "p50", align: "right" },
+			{ key: "p90", label: "p90", align: "right" },
+			{ key: "max", label: "max", align: "right" },
+		],
+		rows,
+	);
+	const peaks = renderTable(
+		[
+			{ key: "path", label: "session", max: 70 },
+			{ key: "requestIndex", label: "req", align: "right" },
+			{ key: "contextTokens", label: "ctx", align: "right" },
+			{ key: "totalChars", label: "chars", align: "right" },
+		],
+		summary.peaks.slice(0, options.limit ?? 10).map((peak) => ({ ...peak, contextTokens: fmtTokens(peak.contextTokens), totalChars: fmtInt(peak.totalChars) })),
+	);
+	const out = `${summary.sessionCount} sessions, ${fmtInt(summary.requestCount)} requests; share of context chars by source (mean of session means; p50/p90/max over requests)\n\n${table}\n\npeak context per session:\n${peaks}\n`;
+	return { stdout: out, stderr: warnings.join("\n"), code: 0 };
 }
 
 // ── sanitize ───────────────────────────────────────────────────────────────

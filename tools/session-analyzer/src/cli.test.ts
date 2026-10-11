@@ -62,7 +62,7 @@ describe("cli", () => {
 	it("list walks a directory and filters by model, since and until", () => {
 		const all = run(["list", fixtures]);
 		expect(all.code).toBe(0);
-		expect(all.stdout).toMatch(/11 sessions, 32 requests/);
+		expect(all.stdout).toMatch(/13 sessions, 36 requests/);
 		expect(all.stdout).toMatch(/^compaction\.jsonl/m);
 		const sol = run(["list", fixtures, "--model", "sol", "--json"]);
 		expect(JSON.parse(sol.stdout).map((row: { id: string }) => row.id)).toEqual(["model-change"]);
@@ -85,6 +85,6 @@ describe("cli", () => {
 
 	it("runs as a script through node", () => {
 		const stdout = execFileSync(process.execPath, [cliPath, "list", fixtures], { encoding: "utf8" });
-		expect(stdout).toMatch(/11 sessions/);
+		expect(stdout).toMatch(/13 sessions/);
 	});
 });

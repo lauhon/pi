@@ -174,15 +174,23 @@ Per request point, group `Segment[]` by `source` and `label`, with chars, share 
 position and age. Per session, the same aggregated over all request points, plus the peak.
 Per directory, averages and the distribution.
 
-Attribution details to settle in step 1 against real files (see open questions):
+Attribution rules as implemented in `inventory.ts` (settled against pi 1.1.0 source, F3 and F12):
 
-- `AGENTS.md` and other context files: which `sections` key carries them.
-- Skills: the `skills` section lists names and descriptions; the skill body arrives later as a
-  `read` tool result on a path under `skills/`. Count a skill as loaded when such a read exists,
-  and attribute that result to `tool_result` with `label = skill:<name>`.
-- Tool descriptions: one segment per `toolsAdded` entry, label = tool name. These are the
-  segments most likely to surprise.
-- Thinking: only if the provider persists it in assistant content.
+- System: every system message in the context is replayed in order; each section in force is one
+  segment (`system.<key>` for the keys pi writes, `system.other` with the key as label for
+  extension sections, label `content` for free-form system text). `AGENTS.md` and the other
+  context files sit in `system.project_context`.
+- Tool descriptions: one segment per tool in force after the replay, label = tool name, chars =
+  description plus the JSON of the parameter schema. These are the segments most likely to
+  surprise.
+- Skills: the `skills` section lists name, description and location. A `read` of a listed
+  location (or a bash command naming it) makes that tool result `tool_result` with label
+  `skill:<name>`; a user message starting with `<skill name=` (the `/skill:` expansion) is
+  `user` with the same label.
+- Thinking: `assistant.thinking` from `thinking` blocks, whenever the provider persisted them.
+- `ageTurns` is the request's turn minus the turn in which the segment's entry was added; for a
+  compaction checkpoint and summary that is the compaction entry's turn.
+- Shares are chars over the request's total chars; `~tokens` is share × usage context tokens.
 
 Three things this layer shows without any attribution method:
 
@@ -191,6 +199,25 @@ Three things this layer shows without any attribution method:
 - Duplicates and conflicts: the same instruction in `AGENTS.md`, a skill and the prompt.
 - Proportion and position: how much is tool descriptions and skills versus hand-written text, and
   where each rule sits in the window.
+
+## Findings
+
+Surprises so far, from the source and the fixtures; the real-file run will add to this list.
+
+- X1 Tool descriptions dominate a small context: with pi's four default tools and this repo's
+  `AGENTS.md`, the fixtures put about half of the characters of a short request into
+  `tool_description`, ahead of `system.skills` and `system.project_context`. On real sessions
+  with `dd-pup-pi` and MCP tools loaded, the first thing to read off `inventory <dir>` is this
+  share, since nothing hand-written competes with it.
+- X2 A compaction written by a pi version that stored no `systemMessage` checkpoint leaves the
+  projection without any system message, although the live request had one (pi rebuilds the
+  prompt at runtime). The inventory under-reports the system part for such sessions; `inspect`
+  shows `compactions` with `hasSystemMessage` so they can be told apart.
+- X3 Sub-run children are a separate population under `~/.pi/pi-sub-runs`, so a directory
+  summary over `sessions/` alone misses 25 of the audit's 40 sessions. Pass both roots.
+- X4 A `custom_message` and a `bashExecution` do not start a turn: turn boundaries are user
+  messages only. A steer typed while the agent runs does start one, which is the intended
+  reading (a new instruction), but it splits one agent run across two turn rows.
 
 ## Observables (step 3)
 
