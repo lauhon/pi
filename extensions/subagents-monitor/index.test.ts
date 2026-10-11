@@ -263,6 +263,40 @@ describe("classifyTurns", () => {
 		expect(result.notices[0].kind).toBe("completion");
 	});
 
+	it("a mixed-origin completion quotes only what the human typed", () => {
+		const r = run({ state: "idle" });
+		const turns = [
+			turn({ turn: 1, origin: "mixed", userEntries: ["p1", "h1"], humanEntries: ["h1"], inbox: [1], ts: 1000 }),
+		];
+		const userText = new Map([
+			["p1", "the parent's task"],
+			["h1", "skip step 3"],
+		]);
+		const result = classifyTurns({ run: r, turns, seenTurn: 0, pendingHuman: undefined, firstTick: false, now: 1000, userText }, CONFIG);
+		const notice = result.notices[0];
+		if (notice.kind !== "completion") throw new Error("expected a completion notice");
+		expect(notice.line).toMatch(/The user also typed into this child during the turn: "skip step 3"/);
+		expect(notice.line).not.toMatch(/the parent's task/);
+	});
+
+	it("a mixed record from an older beacon (no humanEntries) still flags the steer", () => {
+		const r = run({ state: "idle" });
+		const turns = [turn({ turn: 1, origin: "mixed", userEntries: ["p1", "h1"], inbox: [1], ts: 1000 })];
+		const result = classifyTurns({ run: r, turns, seenTurn: 0, pendingHuman: undefined, firstTick: false, now: 1000, userText: new Map() }, CONFIG);
+		const notice = result.notices[0];
+		if (notice.kind !== "completion") throw new Error("expected a completion notice");
+		expect(notice.line).toMatch(/text not recorded/);
+	});
+
+	it("a parent-origin completion has no steer line", () => {
+		const r = run({ state: "idle" });
+		const turns = [turn({ turn: 1, origin: "parent", userEntries: ["p1"], humanEntries: [], inbox: [1], ts: 1000 })];
+		const result = classifyTurns({ run: r, turns, seenTurn: 0, pendingHuman: undefined, firstTick: false, now: 1000, userText: new Map([["p1", "task"]]) }, CONFIG);
+		const notice = result.notices[0];
+		if (notice.kind !== "completion") throw new Error("expected a completion notice");
+		expect(notice.line).not.toMatch(/typed into this child/);
+	});
+
 	it("an unknown-origin record is silent", () => {
 		const r = run({ state: "idle" });
 		const turns = [turn({ turn: 1, origin: "unknown", ts: 1000 })];

@@ -185,13 +185,17 @@ because `sendUserMessage("text")` is persisted as a content array (V8).
 single settle. The beacon appends one record per settle to `turns.jsonl`:
 
 ```json
-{"turn":4,"origin":"parent|human|mixed|unknown","userEntries":["e91","e92"],"inbox":[7,8],"out":"out-4.md","ts":…}
+{"turn":4,"origin":"parent|human|mixed|unknown","userEntries":["e91","e92"],"humanEntries":["e92"],"inbox":[7,8],"out":"out-4.md","ts":…}
 ```
+
+`humanEntries` is the subset of `userEntries` that matched no inbox injection. Records written before the
+field existed lack it; readers must treat it as optional.
 
 That record is what everything downstream reads: `sub wait <name>` waits for a record whose `inbox`
 covers the highest sequence this parent has written (not for "any settle" — E17), and the monitor's
 notification rule keys on `origin` (`mixed` counts as parent, since the parent asked for part of it
-and will want to know).
+and will want to know). A `mixed` completion notice also quotes the `humanEntries` text, so the parent
+does not mistake a user's mid-turn steer for the child ignoring its prompt.
 
 `unknown` exists because a settle can cover **zero** new user entries — an auto-compaction retry or an
 extension-triggered run. Attributing that to the human would fire the "you steered this child" note

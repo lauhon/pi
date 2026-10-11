@@ -291,7 +291,7 @@ describe("settle accounting", () => {
 		expect(existsSync(path.join(runDir, "idle-1"))).toBe(true);
 		expect(readState()).toMatchObject({ state: "idle", turn: 1, since: 5_000 });
 		expect(readTurns()).toEqual([
-			{ turn: 1, origin: "parent", userEntries: ["u1"], inbox: [1], out: "out-1.md", ts: 5_000 },
+			{ turn: 1, origin: "parent", userEntries: ["u1"], humanEntries: [], inbox: [1], out: "out-1.md", ts: 5_000 },
 		]);
 	});
 
@@ -311,6 +311,7 @@ describe("settle accounting", () => {
 				turn: 1,
 				origin: "mixed",
 				userEntries: ["u1", "u2", "u3"],
+				humanEntries: ["u2"],
 				inbox: [7, 8],
 				out: "out-1.md",
 				ts: 6_000,
@@ -528,7 +529,7 @@ describe("rehydration on respawn", () => {
 
 		expect(readTurns()).toEqual([
 			{ turn: 1, origin: "parent", userEntries: ["u1"], inbox: [1], out: "out-1.md", ts: 1_000 },
-			{ turn: 2, origin: "parent", userEntries: ["u2"], inbox: [2], out: "out-2.md", ts: 9_000 },
+			{ turn: 2, origin: "parent", userEntries: ["u2"], humanEntries: [], inbox: [2], out: "out-2.md", ts: 9_000 },
 		]);
 		expect(readState()).toMatchObject({ state: "idle", turn: 2 });
 		// out-1.md, the pre-respawn output, is never overwritten
@@ -562,7 +563,7 @@ describe("rehydration on respawn", () => {
 		branchAssistant("a1", "answer one");
 		await pi._emit("agent_settled");
 		expect(readTurns()).toEqual([
-			{ turn: 1, origin: "parent", userEntries: ["u1"], inbox: [1], out: "out-1.md", ts: expect.any(Number) },
+			{ turn: 1, origin: "parent", userEntries: ["u1"], humanEntries: [], inbox: [1], out: "out-1.md", ts: expect.any(Number) },
 		]);
 	});
 

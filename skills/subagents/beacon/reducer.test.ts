@@ -238,7 +238,7 @@ describe("provenance", () => {
 		});
 		const rec = effects.find((e) => e.type === "appendTurn");
 		expect(rec).toMatchObject({
-			record: { origin: "mixed", inbox: [1], userEntries: ["u1", "u2"] },
+			record: { origin: "mixed", inbox: [1], userEntries: ["u1", "u2"], humanEntries: ["u2"] },
 		});
 	});
 
@@ -258,7 +258,7 @@ describe("provenance", () => {
 		});
 		const rec = effects.find((e) => e.type === "appendTurn");
 		expect(rec).toMatchObject({
-			record: { turn: 1, origin: "mixed", inbox: [7, 8], userEntries: ["u1", "u2", "u3"] },
+			record: { turn: 1, origin: "mixed", inbox: [7, 8], userEntries: ["u1", "u2", "u3"], humanEntries: ["u2"] },
 		});
 	});
 
@@ -297,7 +297,7 @@ describe("provenance", () => {
 			inbox: [],
 		});
 		expect(next.effects.find((e) => e.type === "appendTurn")).toMatchObject({
-			record: { origin: "parent", userEntries: ["u2", "u3"], inbox: [1, 2] },
+			record: { origin: "parent", userEntries: ["u2", "u3"], humanEntries: [], inbox: [1, 2] },
 		});
 		expect(next.state.pending).toEqual([]);
 	});

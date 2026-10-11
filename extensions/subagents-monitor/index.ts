@@ -67,6 +67,8 @@ export interface TurnRecord {
 	readonly turn: number;
 	readonly origin: TurnOrigin;
 	readonly userEntries: readonly string[];
+	/** Absent on records written by a beacon older than this field. */
+	readonly humanEntries?: readonly string[];
 	readonly inbox: readonly number[];
 	readonly out: string;
 	readonly ts: number;
@@ -375,12 +377,31 @@ export function collectRun(input: RunSnapshot, now: number, config: MonitorConfi
 
 // ── Notification classification ─────────────────────────────────────────
 
-function resolveTurnText(rec: TurnRecord, userText: ReadonlyMap<string, string>): string {
-	const parts = rec.userEntries.map((id) => userText.get(id)).filter((t): t is string => typeof t === "string");
+function resolveEntriesText(ids: readonly string[], userText: ReadonlyMap<string, string>): string {
+	const parts = ids.map((id) => userText.get(id)).filter((t): t is string => typeof t === "string");
 	return truncate(parts.join(" / ") || "(no text)", 200);
 }
 
-function makeCompletionNotice(run: Run, turns: readonly TurnRecord[], rec: TurnRecord): CompletionNotice {
+function resolveTurnText(rec: TurnRecord, userText: ReadonlyMap<string, string>): string {
+	return resolveEntriesText(rec.userEntries, userText);
+}
+
+// Without this the parent sees output that departs from its own prompt and may
+// "correct" a change the user asked for.
+function mixedSteerLine(rec: TurnRecord, userText: ReadonlyMap<string, string>): string | undefined {
+	if (rec.origin !== "mixed") return undefined;
+	if (rec.humanEntries === undefined) {
+		return "  The user also typed into this child during the turn (text not recorded); check its session before judging the output.";
+	}
+	return `  The user also typed into this child during the turn: "${resolveEntriesText(rec.humanEntries, userText)}". Treat it as the user's instruction.`;
+}
+
+function makeCompletionNotice(
+	run: Run,
+	turns: readonly TurnRecord[],
+	rec: TurnRecord,
+	userText: ReadonlyMap<string, string>,
+): CompletionNotice {
 	const idx = turns.findIndex((t) => t.turn === rec.turn);
 	const prevTs = idx > 0 ? turns[idx - 1].ts : run.spawnedAtMs;
 	const elapsedMs = Math.max(0, rec.ts - (prevTs ?? rec.ts));
@@ -388,7 +409,8 @@ function makeCompletionNotice(run: Run, turns: readonly TurnRecord[], rec: TurnR
 		`- '${run.name}' turn ${rec.turn} settled after ${fmtElapsed(elapsedMs)} ` +
 		`(~${fmtTokens(run.stats.contextTokens)} ctx, \u03a3${fmtTokens(run.stats.tokens)} tok, ` +
 		`c${run.stats.compactions}, ${fmtCost(run.stats.cost)}). Output: ${path.join(run.dir, `out-${rec.turn}.md`)}`;
-	return { kind: "completion", runName: run.name, turn: rec.turn, line };
+	const steer = mixedSteerLine(rec, userText);
+	return { kind: "completion", runName: run.name, turn: rec.turn, line: steer ? `${line}\n${steer}` : line };
 }
 
 function makeHumanNotice(run: Run, pendingHuman: PendingHuman): HumanNotice {
@@ -438,7 +460,7 @@ export function classifyTurns(input: ClassifyInput, config: MonitorConfig): Clas
 		seenTurn = Math.max(seenTurn, rec.turn);
 		if (firstTick) continue;
 		if (rec.origin === "parent" || rec.origin === "mixed") {
-			notices.push(makeCompletionNotice(run, turns, rec));
+			notices.push(makeCompletionNotice(run, turns, rec, userText));
 		} else if (rec.origin === "human") {
 			const text = resolveTurnText(rec, userText);
 			pendingHuman = {

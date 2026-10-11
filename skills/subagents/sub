@@ -67,7 +67,7 @@ Spawn options:
   --model <provider/id>   Model (default: github-copilot/claude-haiku-4.5)
   --cwd <dir>             Working directory for the child (default: current dir)
   --tools <list>          Restrict tools, e.g. read,grep,find,ls for read-only
-  --thinking <level>      off|minimal|low|medium|high (default: off)
+  --thinking <level>      off|minimal|low|medium|high (default: off; low for Sonnet 5.5, which rejects off)
   --ext <path>            Load a specific extension (repeatable, discovery stays off)
 EOF
 }
@@ -397,13 +397,34 @@ respawn_under_lock() {
 
 # ── Commands ─────────────────────────────────────────────────────────────
 
+# resolve_thinking <model> <requested> -> the --thinking level to launch with.
+# Sonnet 5.5 (anthropic/claude-sonnet-5-5, github-copilot/claude-sonnet-5.5)
+# rejects thinking "disabled" with a 400 on the first request, so the child
+# dies before doing anything. Its cheapest accepted level is low.
+resolve_thinking() {
+  local model=$1 requested=$2
+  case "${model##*/}" in
+    claude-sonnet-5.5*|claude-sonnet-5-5*)
+      if [[ -z "$requested" ]]; then
+        echo low
+      elif [[ "$requested" == off ]]; then
+        echo "note: $model rejects thinking off; using low" >&2
+        echo low
+      else
+        echo "$requested"
+      fi
+      ;;
+    *) echo "${requested:-off}" ;;
+  esac
+}
+
 cmd_spawn() {
   [[ $# -ge 1 ]] || { usage >&2; return 1; }
   local raw_name=$1; shift
   local name; name=$(sanitize "$raw_name")
   [[ -n "$name" ]] || { echo "error: empty name" >&2; return 1; }
 
-  local model="github-copilot/claude-haiku-4.5" cwd="$PWD" tools="" thinking="off"
+  local model="github-copilot/claude-haiku-4.5" cwd="$PWD" tools="" thinking=""
   local task="" taskfile="" exts=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -421,6 +442,7 @@ cmd_spawn() {
       *) task="$task$1 "; shift ;;
     esac
   done
+  thinking=$(resolve_thinking "$model" "$thinking") || return 1
 
   # E24, and the real mechanism behind V12: with cwd inside the agent dir, pi
   # resolves extension imports against that dir's node_modules, which has no

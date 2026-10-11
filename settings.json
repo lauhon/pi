@@ -1,7 +1,7 @@
 {
-  "lastChangelogVersion": "0.87.1",
+  "lastChangelogVersion": "1.1.0",
   "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-5",
+  "defaultModel": "claude-opus-5.5",
   "defaultThinkingLevel": "medium",
   "showCacheMissNotices": true,
   "compaction": {

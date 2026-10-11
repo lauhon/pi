@@ -365,6 +365,53 @@ describe("component: spawn argv/env (E24, defect 1 regression)", () => {
 		expect(record).toMatch(/--tools\nread,grep/);
 		expect(record).toMatch(/--thinking\nhigh/);
 	});
+
+	async function spawnThinking(label: string, args: string[]): Promise<{ record: string; stderr: string }> {
+		const fx = makeFixture(`spawn-thinking-${label}`, { FAKE_PI_SLEEP: "2" });
+		const cwd = tmpDir(`pi-sub-thinking-${label}-`);
+		const result = runSub(fx, ["spawn", `${label}-child`, "--cwd", cwd, ...args, "task"]);
+		expect(result.status, result.stderr).toBe(0);
+		const record = await waitFor("complete fake-pi log", () => {
+			const raw = readIfExists(fx.env.FAKE_PI_LOG as string);
+			return raw?.includes("PI_SUB_SOCKET=") ? raw : undefined;
+		});
+		return { record, stderr: result.stderr };
+	}
+
+	it("defaults thinking to off for other models", async () => {
+		const { record } = await spawnThinking("default", ["--model", "github-copilot/claude-haiku-4.5"]);
+		expect(record).toMatch(/--thinking\noff/);
+	});
+
+	// Sonnet 5.5 answers thinking "disabled" with a 400, killing the child on turn 1.
+	it.each(["github-copilot/claude-sonnet-5.5", "anthropic/claude-sonnet-5-5"])(
+		"defaults thinking to low for %s",
+		async (model) => {
+			const { record } = await spawnThinking(model.split("/")[0], ["--model", model]);
+			expect(record).toMatch(/--thinking\nlow/);
+		},
+	);
+
+	it("replaces an explicit off with low for Sonnet 5.5 and says so", async () => {
+		const { record, stderr } = await spawnThinking("explicit-off", [
+			"--model",
+			"github-copilot/claude-sonnet-5.5",
+			"--thinking",
+			"off",
+		]);
+		expect(record).toMatch(/--thinking\nlow/);
+		expect(stderr).toMatch(/rejects thinking off; using low/);
+	});
+
+	it("keeps an explicit higher level for Sonnet 5.5", async () => {
+		const { record } = await spawnThinking("explicit-high", [
+			"--model",
+			"github-copilot/claude-sonnet-5.5",
+			"--thinking",
+			"high",
+		]);
+		expect(record).toMatch(/--thinking\nhigh/);
+	});
 });
 
 describe("component: --cwd inside a pi agent dir is refused (E24)", () => {

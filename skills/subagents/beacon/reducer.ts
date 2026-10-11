@@ -32,6 +32,8 @@ export interface TurnRecord {
 	readonly turn: number;
 	readonly origin: TurnOrigin;
 	readonly userEntries: readonly string[];
+	/** The subset of `userEntries` a human typed, so the parent can quote a steer inside a mixed turn. */
+	readonly humanEntries: readonly string[];
 	readonly inbox: readonly number[];
 	readonly out: string;
 	readonly ts: number;
@@ -264,6 +266,7 @@ function accountEntries(
 ): {
 	readonly fresh: readonly BranchEntry[];
 	readonly userEntries: string[];
+	readonly humanEntries: string[];
 	readonly inboxSeqs: number[];
 	readonly origin: TurnOrigin;
 	readonly pending: readonly PendingInjection[];
@@ -271,9 +274,9 @@ function accountEntries(
 	const fresh = entries.filter((entry) => !state.accounted.includes(entry.id));
 	const queue = [...state.pending];
 	const userEntries: string[] = [];
+	const humanEntries: string[] = [];
 	const inboxSeqs: number[] = [];
 	let fromParent = 0;
-	let fromHuman = 0;
 
 	for (const entry of fresh) {
 		if (entry.role !== "user") continue;
@@ -284,9 +287,10 @@ function accountEntries(
 			inboxSeqs.push(head.seq);
 			fromParent++;
 		} else {
-			fromHuman++;
+			humanEntries.push(entry.id);
 		}
 	}
+	const fromHuman = humanEntries.length;
 
 	const origin: TurnOrigin =
 		fromParent > 0 && fromHuman > 0
@@ -296,12 +300,12 @@ function accountEntries(
 				: fromHuman > 0
 					? "human"
 					: "unknown";
-	return { fresh, userEntries, inboxSeqs, origin, pending: queue };
+	return { fresh, userEntries, humanEntries, inboxSeqs, origin, pending: queue };
 }
 
 function handleSettled(draft: Draft, event: Extract<BeaconEvent, { type: "agentSettled" }>): void {
 	const { now, entries, inbox } = event;
-	const { fresh, userEntries, inboxSeqs, origin, pending } = accountEntries(draft.state, entries);
+	const { fresh, userEntries, humanEntries, inboxSeqs, origin, pending } = accountEntries(draft.state, entries);
 
 	const turn = draft.state.turn + 1;
 	// Last assistant text that actually said something: a trailing tool-call-only
@@ -323,7 +327,7 @@ function handleSettled(draft: Draft, event: Extract<BeaconEvent, { type: "agentS
 	draft.effects.push({ type: "writeOutput", turn, text: lastAssistant });
 	draft.effects.push({
 		type: "appendTurn",
-		record: { turn, origin, userEntries, inbox: inboxSeqs, out: `out-${turn}.md`, ts: now },
+		record: { turn, origin, userEntries, humanEntries, inbox: inboxSeqs, out: `out-${turn}.md`, ts: now },
 	});
 	draft.effects.push({ type: "touchIdle", turn });
 

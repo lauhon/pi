@@ -63,7 +63,7 @@ Pick the cheapest model that fits the job. Pass via `--model`:
 |------|-------|-------|
 | Recon / simple lookups / summaries | `github-copilot/gpt-5.6-luna` | default, very cheap |
 | Implementation (code changes) | `github-copilot/gpt-5.6-terra` | |
-| Review / planning | `github-copilot/opus-5` | combine with read-only tools |
+| Review / planning | `github-copilot/claude-opus-5.5` | combine with read-only tools |
 | Research (web) | `github-copilot/gpt-5.6-sol` | needs web extension, see below |
 | Ops / script & migration execution (prepare, run, test DB migrations, heavy bash work) | `github-copilot/gpt-5.6-sol` | best at executing scripts |
 
@@ -123,7 +123,9 @@ Completion notifications are status signals, not review. Always read the output 
 - **Research children** need web tools (extensions are off by default):
   `--ext ~/.pi/agent/npm/node_modules/pi-web-access/index.ts`
 - **Thinking** defaults to `off` for cost. Raise per child with
-  `--thinking medium` only when the task genuinely needs it.
+  `--thinking medium` only when the task genuinely needs it. Sonnet 5.5
+  (`github-copilot/claude-sonnet-5.5`, `anthropic/claude-sonnet-5-5`) rejects
+  `off` with a 400, so `sub` uses `low` for it instead.
 - `wait` prints each child's out-file path; read the file, don't re-run the child.
 - After collecting results, `clean` old dirs occasionally.
 
@@ -136,7 +138,9 @@ when — the parent hears about a settled turn, keyed on **who caused it**:
   both contributed) → a `[subagent] ... finished a turn` message arrives
   immediately, `deliverAs: steer`. If you were idle, it also **triggers a
   turn automatically** so you resume the delegated work without being
-  prompted. Turns settling within ~4s of each other are batched into one
+  prompted. If a human typed into the child during your turn, the notice
+  quotes their text: treat it as the user's instruction, not as the child
+  going off-prompt. Turns settling within ~4s of each other are batched into one
   message. Set `PI_SUB_AUTOCONTINUE=0` to disable the auto-trigger (the
   notification still arrives, delivered on your next turn).
 - **A human steered the child directly** (attached via `sub open` and typed
