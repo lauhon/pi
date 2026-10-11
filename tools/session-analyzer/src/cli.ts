@@ -6,6 +6,9 @@
  *   sanitize <file> [--out p]  write a same-size copy with every text body replaced (fixtures only)
  *   inventory <file> [--turn N | --request i]   what filled the window, by source
  *   inventory <dir>...         average share by source over every request under the dirs
+ *   summary <file>             per-turn observables, findings and session totals
+ *   summary <dir>...           the August audit's quantitative section, computed
+ *   rank <dir>...              sessions by bad-signal score, for the labeling pass
  *
  * Output is a terminal table by default, or JSON with --json.
  */
@@ -14,6 +17,8 @@ import { relative } from "node:path";
 import { parseArgs } from "node:util";
 import { inventoryDirectory, inventoryRequestPoint, inventorySession, type RequestInventory, type SourceTotal } from "./inventory.ts";
 import { findSessionFiles, loadSession, replaySystemMessages } from "./load.ts";
+import { directorySummary, sessionSummary, type SessionSummary, type TurnObservables } from "./observables.ts";
+import { rankSessions } from "./rank.ts";
 import { fmtCost, fmtDate, fmtDuration, fmtInt, fmtPct, fmtTokens, renderTable, sessionJson, shortModel, toJson, type Row } from "./report.ts";
 import { sanitizeJsonl } from "./sanitize.ts";
 import type { RequestPoint, Session } from "./types.ts";
@@ -26,6 +31,11 @@ const USAGE = `usage: npm run analyze -- <subcommand> [args] [--json]
   inventory <file> [--turn N | --request i]
                                what filled the window at that request (default: session totals and peak)
   inventory <dir>...           average share by source over every request
+  summary <file>               per-turn observables, findings and session totals
+  summary <dir>...             directory totals in the shape of the August audit
+  rank <dir>...                sessions by bad-signal score, highest first
+
+options: --json  --model <substring>  --since <iso>  --until <iso>  --exclude <substring>  --limit <n>
 `;
 
 export interface CliOptions {
@@ -36,6 +46,7 @@ export interface CliOptions {
 	model?: string;
 	since?: string;
 	until?: string;
+	exclude?: string;
 	limit?: number;
 }
 
@@ -58,6 +69,7 @@ export function run(argv: string[]): CliResult {
 				model: { type: "string" },
 				since: { type: "string" },
 				until: { type: "string" },
+				exclude: { type: "string" },
 				limit: { type: "string" },
 			},
 			allowPositionals: true,
@@ -75,6 +87,7 @@ export function run(argv: string[]): CliResult {
 			model: parsed.values.model,
 			since: parsed.values.since,
 			until: parsed.values.until,
+			exclude: parsed.values.exclude,
 			limit: optionalInt(parsed.values.limit),
 		};
 		switch (command) {
@@ -86,6 +99,10 @@ export function run(argv: string[]): CliResult {
 				return sanitize(requirePath(positionals[0], "sanitize <file>"), options);
 			case "inventory":
 				return inventory(requirePaths(positionals, "inventory <file|dir>..."), options);
+			case "summary":
+				return summary(requirePaths(positionals, "summary <file|dir>..."), options);
+			case "rank":
+				return rank(requirePaths(positionals, "rank <dir>..."), options);
 			case undefined:
 			case "help":
 			case "--help":
@@ -146,6 +163,7 @@ export function displayPath(entry: LoadedSession): string {
 }
 
 function keepSession(session: Session, options: CliOptions): boolean {
+	if (options.exclude && session.path.includes(options.exclude)) return false;
 	if (options.since && session.startedAt < options.since) return false;
 	if (options.until && session.startedAt > options.until) return false;
 	if (options.model && !session.requestPoints.some((rp) => rp.model.includes(options.model!))) return false;
@@ -458,6 +476,180 @@ function inventoryOfDirectory(roots: string[], options: CliOptions): CliResult {
 	);
 	const out = `${summary.sessionCount} sessions, ${fmtInt(summary.requestCount)} requests; share of context chars by source (mean of session means; p50/p90/max over requests)\n\n${table}\n\npeak context per session:\n${peaks}\n`;
 	return { stdout: out, stderr: warnings.join("\n"), code: 0 };
+}
+
+// ── summary ────────────────────────────────────────────────────────────────
+
+function summary(roots: string[], options: CliOptions): CliResult {
+	const single = roots.length === 1 && statSync(roots[0]).isFile();
+	if (!single) return summaryOfDirectory(roots, options);
+	const session = loadSession(roots[0]);
+	const result = sessionSummary(session);
+	if (options.json) return { stdout: `${toJson(result)}\n`, stderr: "", code: 0 };
+	const lines = [
+		`session ${result.id}  turns ${result.turns}  requests ${result.requests}  cost ${fmtCost(result.cost)}${result.otherCost > 0 ? ` (+${fmtCost(result.otherCost)} compaction/usage)` : ""}  peak context ${fmtTokens(result.peakContextTokens)}  duration ${fmtDuration(result.durationMs)}`,
+		`compactions ${result.compactions}${result.compactions > 0 ? ` (tokens before: ${result.compactionTokensBefore.map(fmtTokens).join(", ")})` : ""}  forks ${result.forks}  branch summaries ${result.branchSummaries}  model changes ${result.modelChanges}  thinking changes ${result.thinkingChanges}`,
+		`models: ${result.modelMix.map((row) => `${shortModel(row.model)} ${row.requests} req ${fmtCost(row.cost)}`).join("; ")}  top request ${fmtPct(result.topRequestCostShare)} of cost, top 5 ${fmtPct(result.top5RequestCostShare)}`,
+		`tool calls ${result.toolCalls} (${countList(result.toolCallsByName)})  errors ${result.toolErrors}${result.toolErrors > 0 ? ` (${countList(result.toolErrorsByName)})` : ""}  missing path ${result.missingPathErrors}  failed commands ${result.failedCommands}  immediate repeats ${result.immediateRepeats} of ${result.repeatedIdenticalCalls} identical`,
+		`questions ${result.askedQuestions}  narration-only ${result.narrationOnlyTurns}  corrections ${result.correctionTurns}  rewinds ${result.rewinds}  aborted ${result.aborted}  tests run ${result.testsRun}  edit churn ${result.editChurn}  stale-read turns ${result.staleFileTurns}  rereads after compaction ${result.rereadAfterCompaction}  long responses ${result.longResponses} (>5k: ${result.veryLongResponses})  cache hit mean ${fmtPct(result.cacheHitRatioMean)}  drops ${result.cacheDrops}`,
+		`injections: ${countList(result.injections) || "none"}`,
+		"",
+		renderTable(turnColumns(), result.turnObservables.map(turnRow)),
+	];
+	if (result.findings.length > 0) {
+		lines.push("", "findings:");
+		for (const finding of result.findings) lines.push(`  turn ${finding.turnIndex}  ${finding.severity.padEnd(4)}  ${finding.kind}: ${finding.message}`);
+	}
+	return { stdout: `${lines.join("\n")}\n`, stderr: "", code: 0 };
+}
+
+function turnColumns() {
+	const right = "right" as const;
+	return [
+		{ key: "turn", label: "turn", align: right },
+		{ key: "requests", label: "req", align: right },
+		{ key: "userChars", label: "user", align: right },
+		{ key: "toolCalls", label: "tools", align: right },
+		{ key: "names", label: "tool names", max: 28 },
+		{ key: "files", label: "r/e", align: right },
+		{ key: "testsRun", label: "test", align: right },
+		{ key: "toolErrors", label: "err", align: right },
+		{ key: "errorRunMax", label: "run", align: right },
+		{ key: "missingPathErrors", label: "miss", align: right },
+		{ key: "immediateRepeats", label: "rep", align: right },
+		{ key: "editChurn", label: "churn", align: right },
+		{ key: "stale", label: "stale", align: right },
+		{ key: "flags", label: "flags" },
+		{ key: "finalTextChars", label: "text", align: right },
+		{ key: "ctx", label: "ctx", align: right },
+		{ key: "cache", label: "cache", align: right },
+		{ key: "cost", label: "cost", align: right },
+	];
+}
+
+function turnRow(turn: TurnObservables): Row {
+	const flags = [
+		turn.askedQuestion ? "q" : "",
+		turn.narrationOnly ? "narr" : "",
+		turn.correctionTurn ? "corr" : "",
+		turn.rewinds > 0 ? `rew${turn.rewinds}` : "",
+		turn.aborted > 0 ? "abort" : "",
+		turn.longResponses > 0 ? (turn.veryLongResponses > 0 ? "long5k" : "long") : "",
+		turn.cacheDrops > 0 ? "drop" : "",
+		turn.rereadAfterCompaction > 0 ? "reread" : "",
+		turn.modelChanges > 0 ? "model" : "",
+		turn.thinkingChanges > 0 ? "think" : "",
+		Object.keys(turn.injections).length > 0 ? "inj" : "",
+	].filter(Boolean);
+	return {
+		turn: turn.turnIndex,
+		requests: turn.requests,
+		userChars: turn.userChars,
+		toolCalls: turn.toolCalls,
+		names: Object.entries(turn.toolCallsByName)
+			.map(([name, count]) => (count > 1 ? `${name}×${count}` : name))
+			.join(" "),
+		files: `${turn.filesRead.length}/${turn.filesEdited.length}`,
+		testsRun: turn.testsRun,
+		toolErrors: turn.toolErrors,
+		errorRunMax: turn.errorRunMax,
+		missingPathErrors: turn.missingPathErrors,
+		immediateRepeats: turn.immediateRepeats,
+		editChurn: turn.editChurn,
+		stale: turn.staleFilesInContext.length,
+		flags: flags.join(" "),
+		finalTextChars: turn.finalTextChars,
+		ctx: fmtTokens(turn.peakContextTokens),
+		cache: fmtPct(turn.cacheHitRatioMin),
+		cost: fmtCost(turn.cost),
+	};
+}
+
+export function loadSummaries(roots: string[], options: CliOptions): { summaries: SessionSummary[]; warnings: string[]; byRoot: Map<string, number> } {
+	const { loaded, warnings } = loadDirectories(roots, options);
+	const byRoot = new Map<string, number>();
+	for (const entry of loaded) byRoot.set(entry.root, (byRoot.get(entry.root) ?? 0) + 1);
+	return { summaries: loaded.map((entry) => sessionSummary(entry.session)), warnings, byRoot };
+}
+
+function summaryOfDirectory(roots: string[], options: CliOptions): CliResult {
+	const { summaries, warnings, byRoot } = loadSummaries(roots, options);
+	const result = directorySummary(summaries);
+	if (options.json) {
+		const { sessionsBySize, ...rest } = result;
+		return { stdout: `${toJson({ ...rest, byRoot, sessionsBySize: sessionsBySize.slice(0, options.limit ?? 10) })}\n`, stderr: warnings.join("\n"), code: 0 };
+	}
+	const mix = renderTable(
+		[
+			{ key: "model", label: "model" },
+			{ key: "requests", label: "requests", align: "right" },
+			{ key: "cost", label: "cost", align: "right" },
+			{ key: "requestShare", label: "share of requests", align: "right" },
+			{ key: "costShare", label: "share of cost", align: "right" },
+		],
+		result.modelMix.map((row) => ({ ...row, requests: fmtInt(row.requests), cost: fmtCost(row.cost), requestShare: fmtPct(row.requestShare), costShare: fmtPct(row.costShare) })),
+	);
+	const top = renderTable(
+		[
+			{ key: "path", label: "session", max: 70 },
+			{ key: "cost", label: "cost", align: "right" },
+			{ key: "requests", label: "req", align: "right" },
+			{ key: "peakContextTokens", label: "peak ctx", align: "right" },
+		],
+		result.sessionsBySize.slice(0, options.limit ?? 10).map((row) => ({ ...row, cost: fmtCost(row.cost), peakContextTokens: fmtTokens(row.peakContextTokens) })),
+	);
+	const lines = [
+		`${result.sessions} sessions (${[...byRoot].map(([root, count]) => `${root}: ${count}`).join(", ")}), ${fmtInt(result.requests)} assistant requests, recorded cost ${fmtCost(result.cost)}${result.otherCost > 0 ? ` (+${fmtCost(result.otherCost)} compaction/usage entries)` : ""}`,
+		`cost concentration: most expensive session ${fmtPct(result.topSessionCostShare)}, five most expensive ${fmtPct(result.top5SessionCostShare)}`,
+		"",
+		mix,
+		"",
+		`tool errors ${fmtInt(result.toolErrors)}${result.toolErrors > 0 ? ` (${countList(result.toolErrorsByName)})` : ""}: ${result.missingPathErrors} missing-path, ${result.failedCommands} failed commands, ${result.immediateRepeats} immediately repeated an identical call (${result.repeatedIdenticalCalls} identical calls in all)`,
+		`compactions ${result.compactions}; largest request context ${fmtTokens(result.peakContextTokens)} tokens`,
+		`responses over 2,000 chars: ${result.longResponses}; over 5,000: ${result.veryLongResponses}`,
+		`corrections ${result.correctionTurns}, rewinds ${result.rewinds}, aborted ${result.aborted}, questions ${result.askedQuestions}, narration-only turns ${result.narrationOnlyTurns}, test runs ${result.testsRun}`,
+		"",
+		"most expensive sessions:",
+		top,
+	];
+	return { stdout: `${lines.join("\n")}\n`, stderr: warnings.join("\n"), code: 0 };
+}
+
+// ── rank ───────────────────────────────────────────────────────────────────
+
+function rank(roots: string[], options: CliOptions): CliResult {
+	const { summaries, warnings } = loadSummaries(roots, options);
+	const ranked = rankSessions(summaries).slice(0, options.limit ?? 50);
+	if (options.json) {
+		return { stdout: `${toJson(ranked.map(({ summary: s, ...rest }) => ({ ...rest, cost: s.cost, requests: s.requests, turns: s.turns, peakContextTokens: s.peakContextTokens, startedAt: s.startedAt })))}\n`, stderr: warnings.join("\n"), code: 0 };
+	}
+	const table = renderTable(
+		[
+			{ key: "score", label: "score", align: "right" },
+			{ key: "corr", label: "corr", align: "right" },
+			{ key: "rew", label: "rew", align: "right" },
+			{ key: "err", label: "errrun", align: "right" },
+			{ key: "rep", label: "repeat", align: "right" },
+			{ key: "abort", label: "abort", align: "right" },
+			{ key: "ctx", label: "ctx", align: "right" },
+			{ key: "cost", label: "cost", align: "right" },
+			{ key: "requests", label: "req", align: "right" },
+			{ key: "path", label: "session", max: 80 },
+		],
+		ranked.map((row) => ({
+			score: row.score.toFixed(2),
+			corr: row.components.correctionTurns.toFixed(2),
+			rew: row.components.rewinds.toFixed(2),
+			err: row.components.errorRuns.toFixed(2),
+			rep: row.components.repeatedIdenticalCalls.toFixed(2),
+			abort: row.components.aborted.toFixed(2),
+			ctx: row.components.largeContext.toFixed(2),
+			cost: fmtCost(row.summary.cost),
+			requests: row.summary.requests,
+			path: row.path,
+		})),
+	);
+	return { stdout: `${table}\n${ranked.length} sessions ranked; components are count / cap, clipped to 1 (see rank.ts)\n`, stderr: warnings.join("\n"), code: 0 };
 }
 
 // ── sanitize ───────────────────────────────────────────────────────────────

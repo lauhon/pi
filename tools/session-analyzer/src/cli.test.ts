@@ -62,7 +62,7 @@ describe("cli", () => {
 	it("list walks a directory and filters by model, since and until", () => {
 		const all = run(["list", fixtures]);
 		expect(all.code).toBe(0);
-		expect(all.stdout).toMatch(/13 sessions, 36 requests/);
+		expect(all.stdout).toMatch(/17 sessions, 54 requests/);
 		expect(all.stdout).toMatch(/^compaction\.jsonl/m);
 		const sol = run(["list", fixtures, "--model", "sol", "--json"]);
 		expect(JSON.parse(sol.stdout).map((row: { id: string }) => row.id)).toEqual(["model-change"]);
@@ -71,6 +71,46 @@ describe("cli", () => {
 		expect(run(["list", join(fixtures, "linear.jsonl")]).stdout).toMatch(/1 sessions, 3 requests/);
 		expect(run(["list", join(fixtures, "linear.jsonl"), join(fixtures, "fork.jsonl")]).stdout).toMatch(/2 sessions, 5 requests/);
 		expect(JSON.parse(run(["list", join(fixtures, "linear.jsonl"), "--json"]).stdout)[0]).toMatchObject({ version: 3, cwd: "/repo" });
+	});
+
+	it("summary of a file prints the per-turn table and findings, and --json the full summary", () => {
+		const result = run(["summary", join(fixtures, "tool-errors.jsonl")]);
+		expect(result.code).toBe(0);
+		expect(result.stdout).toMatch(/^session tool-errors {2}turns 1 {2}requests 5/m);
+		expect(result.stdout).toMatch(/errors 2 \(read 2\) {2}missing path 2 {2}failed commands 0 {2}immediate repeats 1 of 1 identical/);
+		expect(result.stdout).toMatch(/^ {3}1 {4}5/m);
+		expect(result.stdout).toMatch(/turn 1 {2}warn {2}repeated_identical_call: 1 identical call\(s\) repeated immediately/);
+		const json = JSON.parse(run(["summary", join(fixtures, "tool-errors.jsonl"), "--json"]).stdout);
+		expect(json.turnObservables).toHaveLength(1);
+		expect(json.findings.map((finding: { kind: string }) => finding.kind)).toEqual(["repeated_identical_call", "missing_path_error"]);
+	});
+
+	it("summary of directories prints the audit-shaped block and honors --exclude and --limit", () => {
+		const result = run(["summary", fixtures]);
+		expect(result.code).toBe(0);
+		expect(result.stdout).toMatch(/^17 sessions \(.*fixtures: 17\), 54 assistant requests, recorded cost \$/m);
+		expect(result.stdout).toMatch(/cost concentration: most expensive session \d+\.\d%, five most expensive \d+\.\d%/);
+		expect(result.stdout).toMatch(/^gpt-5\.6-terra +53 +\$/m);
+		expect(result.stdout).toMatch(/tool errors 3 \(read 2, bash 1\): 2 missing-path, 1 failed commands, 1 immediately repeated an identical call \(2 identical calls in all\)/);
+		expect(result.stdout).toMatch(/compactions 2; largest request context 70k tokens/);
+		expect(result.stdout).toMatch(/responses over 2,000 chars: 2; over 5,000: 1/);
+		const json = JSON.parse(run(["summary", fixtures, "--json", "--limit", "2", "--exclude", "compaction"]).stdout);
+		expect(json.sessions).toBe(15);
+		expect(json.compactions).toBe(0);
+		expect(json.sessionsBySize).toHaveLength(2);
+		expect(json.byRoot[fixtures]).toBe(15);
+	});
+
+	it("rank orders sessions by score and prints the components", () => {
+		const result = run(["rank", fixtures, "--limit", "3"]);
+		expect(result.code).toBe(0);
+		const lines = result.stdout.trimEnd().split("\n");
+		expect(lines[2]).toMatch(/^ 1\.00 .*aborted-and-cache-drop\.jsonl$/);
+		expect(lines[3]).toMatch(/rewind-with-summary\.jsonl|fork\.jsonl|correction-turn\.jsonl/);
+		expect(lines[lines.length - 1]).toMatch(/^3 sessions ranked/);
+		const json = JSON.parse(run(["rank", fixtures, "--json"]).stdout);
+		expect(json[0]).toMatchObject({ path: join(fixtures, "aborted-and-cache-drop.jsonl"), score: 1 });
+		expect(json[json.length - 1].score).toBe(0);
 	});
 
 	it("sanitize writes a sibling file by default and honors --out", () => {
@@ -85,6 +125,6 @@ describe("cli", () => {
 
 	it("runs as a script through node", () => {
 		const stdout = execFileSync(process.execPath, [cliPath, "list", fixtures], { encoding: "utf8" });
-		expect(stdout).toMatch(/13 sessions/);
+		expect(stdout).toMatch(/17 sessions/);
 	});
 });

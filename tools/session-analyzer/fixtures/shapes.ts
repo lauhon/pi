@@ -176,6 +176,63 @@ export function customSection(): SessionBuilder {
 	return b;
 }
 
+/** A long tool-using turn, then a short correction; then a question; then narration only. */
+export function correctionTurn(): SessionBuilder {
+	const b = new SessionBuilder({ id: "correction-turn" });
+	b.system();
+	b.user("Rename the helper in the loader");
+	b.toolTurn("read", { path: "/repo/src/a.ts" }, "export function helper() {}");
+	b.toolTurn("read", { path: "/repo/src/b.ts" }, "import { helper } from './a.ts'");
+	b.toolTurn("edit", { path: "/repo/src/a.ts", oldText: "helper", newText: "loadHelper" }, "Edited /repo/src/a.ts");
+	b.assistant({ text: "Renamed helper to loadHelper in a.ts." });
+	b.user("No, I meant the helper in b.ts, not a.ts");
+	b.toolTurn("edit", { path: "/repo/src/b.ts", oldText: "helper", newText: "loadHelper" }, "Edited /repo/src/b.ts");
+	b.assistant({ text: "Renamed it in b.ts. Should I revert the change in a.ts?" });
+	b.user("Yes");
+	b.assistant({ text: "Reverting now, this takes one edit." });
+	return b;
+}
+
+/** Edit churn: the same file edited twice in a turn, and an edit that reverts the previous one. */
+export function editChurn(): SessionBuilder {
+	const b = new SessionBuilder({ id: "edit-churn" });
+	b.system();
+	b.user("Fix the typo");
+	b.toolTurn("edit", { path: "/repo/README.md", oldText: "teh", newText: "the" }, "Edited /repo/README.md");
+	b.toolTurn("edit", { path: "/repo/README.md", oldText: "the", newText: "teh" }, "Edited /repo/README.md");
+	b.toolTurn("bash", { command: "npm test" }, "3 passed");
+	b.assistant({ text: "Fixed and tests pass." });
+	return b;
+}
+
+/** Responses over 2,000 and over 5,000 characters, plus one that is just under. */
+export function longResponses(): SessionBuilder {
+	const b = new SessionBuilder({ id: "long-responses" });
+	b.system();
+	b.user("Explain the architecture");
+	b.assistant({ text: "x".repeat(2001) });
+	b.user("More detail please");
+	b.assistant({ text: "y".repeat(5001) });
+	b.user("Shorter?");
+	b.assistant({ text: "z".repeat(1999) });
+	return b;
+}
+
+/** An errored request, an aborted one, and a cache hit ratio that collapses between requests. */
+export function abortedAndCacheDrop(): SessionBuilder {
+	const b = new SessionBuilder({ id: "aborted-cache-drop" });
+	b.system();
+	b.user("Run the migration");
+	b.assistant({ text: "", stopReason: "error", errorMessage: "Unknown error (no error details in response)", usage: { input: 0, output: 0 } });
+	b.user("Try again");
+	b.assistant({ text: "Starting.", toolCalls: [{ name: "bash", args: { command: "npm run migrate" } }], usage: { input: 1000, cacheRead: 9000 } });
+	b.toolResult({ callId: "call_1", name: "bash", text: "Command failed with exit code 1\nmigrate: connection refused", isError: true });
+	b.assistant({ text: "The database is not reachable", stopReason: "aborted", usage: { input: 10_000, cacheRead: 0 } });
+	b.user("Check again later");
+	b.assistant({ text: "Will do.", usage: { input: 2000, cacheRead: 9000 } });
+	return b;
+}
+
 export const SHAPES = {
 	linear,
 	fork,
@@ -190,6 +247,10 @@ export const SHAPES = {
 	noSystemMessage,
 	skillLoad,
 	customSection,
+	correctionTurn,
+	editChurn,
+	longResponses,
+	abortedAndCacheDrop,
 };
 
 export { defaultSections, defaultTools };

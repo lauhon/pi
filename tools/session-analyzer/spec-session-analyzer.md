@@ -221,37 +221,56 @@ Surprises so far, from the source and the fixtures; the real-file run will add t
 
 ## Observables (step 3)
 
-All structural. No model calls. Per turn unless marked.
+All structural. No model calls. Per turn unless marked. A turn is the span from one user
+message to the next on the active branch; `observables.ts` keeps every cue list, pattern table
+and threshold in one place at the top of the file.
 
 | Kind | Definition | Source in file |
 | --- | --- | --- |
 | `asked_question` | assistant text ends the turn with a question and no tool call | assistant content, `stopReason` |
 | `tool_calls` | count by tool name | assistant `toolCall` blocks |
 | `files_read`, `files_edited` | distinct paths from `read`, `edit`, `write` arguments | tool call args |
-| `edit_churn` | same file edited more than once in a turn, or an edit reverting the previous one | tool call args and results |
+| `edit_churn` | same file edited more than once in a turn (+1 per repeat), or an edit whose old and new text swap an earlier edit's on that file (+1) | tool call args |
 | `tests_run` | bash command matching a test runner (`vitest`, `jest`, `pytest`, `npm test`, `go test`, `cargo test`); keep the list in one table | bash args |
-| `tool_error`, `error_run` | `isError` results; consecutive count; same error text recurring | tool results |
+| `tool_error`, `error_run` | `isError` results by tool; the longest run of consecutive error results in the turn (`error_run` finding from 3); error texts equal to an earlier one in the session (`repeatedErrorText`); `bash`/`powershell` errors are the audit's "failed commands" | tool results |
 | `missing_path_error` | error text matching no-such-file patterns | tool results (audit finding 3) |
-| `repeated_identical_call` | same tool and same `argsHash` as an earlier call in the session; flag "immediately" when adjacent | tool calls (audit: 55 cases) |
-| `reread_after_compaction` | `read` of a path that was already read before the latest compaction | tool calls, compaction |
-| `stale_file_in_context` | a `read` result for path X still in context after a later `edit` or `write` to X | segments, tool calls |
+| `repeated_identical_call` | same tool and same `argsHash` (arguments with keys sorted) as an earlier call in the session; "immediate" when the previous tool call of the same turn was the identical one, so a user asking again is not a blind retry | tool calls (audit: 55 cases) |
+| `reread_after_compaction` | `read` of a path that was read before the latest compaction on the branch; it also counts as a `repeated_identical_call` when the arguments match | tool calls, compaction |
+| `stale_file_in_context` | at the turn's last request: paths with a successful `read` result still in pi's projection that an `edit` or `write` followed; a context edit that drops the result clears it | request context, tool calls |
 | `text_before_first_tool` | chars of assistant text preceding the first tool call | assistant content |
 | `narration_only` | turn with no tool call and no question | assistant content |
-| `long_response` | visible text over 2,000 and over 5,000 chars | assistant content (audit metric) |
-| `correction_turn` (user) | short user message after a long assistant turn, opening with a negation or "actually", "I meant", "not that"; keep the cue list in one table | user content |
-| `rewind` | entries sharing a `parentId`, `branch_summary` entries | tree |
+| `long_response` | assistant messages whose visible text is over 2,000 and over 5,000 chars, counted per message | assistant content (audit metric) |
+| `correction_turn` (user) | user message of at most 300 chars opening with a cue from `CORRECTION_CUES` (no, not, don't, stop, wait, actually, I meant, that's not, wrong, undo, revert, instead, why did you, you didn't), after a turn with at least 3 tool calls, 1,000 chars of final text or a long response | user content |
+| `rewind` | abandoned branches forking from an entry of the turn (children of one `parentId` that are not on the active branch); `branch_summary` entries are counted separately so a rewind with a summary is one rewind | tree |
 | `aborted` | `stopReason` aborted or error | assistant |
-| `cache_hit_ratio` | `cacheRead / (input + cacheRead + cacheWrite)`, flag drops over 50 points between adjacent requests | usage |
-| `model_change`, `thinking_change` | entries of those types | entries |
+| `cache_hit_ratio` | `cacheRead / (input + cacheRead + cacheWrite)` per request; the turn reports its minimum and the number of drops of 50 points or more between adjacent requests (across turn boundaries too) | usage |
+| `model_change`, `thinking_change` | entries of those types in the turn; the session counts every entry, including turn 0 setup | entries |
 | `injection` | `custom_message` by `customType`, chars | entries |
 
-Session summary: counts of the above, cost, turns, compactions and `tokensBefore`, peak context,
-forks, duration, model mix, and cost share of the most expensive requests. Directory summary:
-the August audit's quantitative section, computed.
+Session summary: counts of the above, cost (assistant requests; compaction, branch summary and
+usage entries are `otherCost`), turns, compactions and `tokensBefore`, peak context, forks,
+duration, model mix, and cost share of the most expensive requests. Directory summary: the
+August audit's quantitative section, computed. The acceptance run for step 3 is
 
-`rank.ts` scores a session for the labeling pass. Start with a plain sum of normalized
-`correction_turn`, `rewind`, `error_run`, `repeated_identical_call`, `aborted`, and peak context
-over 200k. The formula is a starting point and lives in one function with a comment that says so.
+```
+npm run analyze -- summary ./sessions ~/.pi/pi-sub-runs --model gpt-5.6 --until 2026-08-13 --exclude <audit session>
+```
+
+with this mapping to the audit's numbers: assistant turns = `requests` of the `gpt-5.6-*` rows
+of the model mix; recorded cost = `cost`; cost concentration = `topSessionCostShare` and
+`top5SessionCostShare`; tool errors by tool = `toolErrorsByName`; missing-path = 
+`missingPathErrors`; failed commands = `failedCommands`; immediate identical repeats =
+`immediateRepeats`; compactions = `compactions`; 314k = `peakContextTokens`; responses over
+2,000 and 5,000 chars = `longResponses` and `veryLongResponses`. `--model` keeps whole sessions
+that contain the model, as the audit did ("40 sessions containing GPT-5.6 responses"). This run
+has not happened yet: the container that implemented step 3 had no session files, so the
+numbers below are still the audit's, not the analyzer's.
+
+`rank.ts` scores a session for the labeling pass: a plain sum of `correction_turn`, `rewind`,
+`error_run` (turns with 3 or more consecutive errors), `repeated_identical_call`, `aborted` and
+peak context over 200k, each divided by a cap (3, 3, 3, 5, 2, and 100k tokens above 200k) and
+clipped to 1. The formula is a starting point and lives in one function with a comment that
+says so; the caps are one table next to it.
 
 ## Labeling pass (step 4)
 
@@ -317,9 +336,9 @@ does badly and a browser does well. It reads the JSON contract above, so the UI 
 
 | Step | Deliverable | Done when |
 | --- | --- | --- |
-| 1 | `load.ts`, `cli.ts` with `list <dir>` and `inspect <file>`; dependency and config changes; fixture builder and first fixtures; conformance test against pi's own projection | `npm run analyze -- inspect <file>` prints one row per request point with turn, model, context tokens from `usage`, tool call count. Open questions Q1 to Q5 answered in this spec. |
-| 2 | `inventory.ts`; `inventory <file> [--turn N]` and `inventory <dir>` | For any session: "what filled the window at turn N" and for a directory: average share by source. First surprises written to the Decisions or a new "Findings" section. |
-| 3 | `observables.ts`, `rank.ts`; `summary <file>`, `summary <dir>`, `rank <dir>` | Per-turn table has the observables as columns. Directory summary reproduces the August audit's numbers for its period within rounding. |
+| 1 | `load.ts`, `cli.ts` with `list <dir>` and `inspect <file>`; dependency and config changes; fixture builder and first fixtures; conformance test against pi's own projection | `npm run analyze -- inspect <file>` prints one row per request point with turn, model, context tokens from `usage`, tool call count. Open questions Q1 to Q5 answered in this spec. Done 2026-10-11 except the real-file run. |
+| 2 | `inventory.ts`; `inventory <file> [--turn N]` and `inventory <dir>` | For any session: "what filled the window at turn N" and for a directory: average share by source. First surprises written to the Decisions or a new "Findings" section. Done 2026-10-11 on fixtures. |
+| 3 | `observables.ts`, `rank.ts`; `summary <file>`, `summary <dir>`, `rank <dir>` | Per-turn table has the observables as columns. Directory summary reproduces the August audit's numbers for its period within rounding. Code done 2026-10-11; the reproduction run is pending (see "Observables"). |
 | 4 | `reports/session-labels.json` | At least 20 sessions labeled, every bad one with `earliestSaveTurn` and `level`. |
 | 5 | A "Decisions" entry in this spec naming the branch taken | Labels cluster read; the cheap fix applied, or the rule heatmap started, or the live checks justified with the replay numbers. |
 | 6 | Live adapter extension reading `ctx.sessionManager` and `context`; `/ablate`; web view last | Widget shows step 3 counts live; `/ablate` opens a branch and prints the observable diff. |
