@@ -106,6 +106,8 @@ export interface Session {
 	cwd: string;
 	version: number;
 	parentSession?: string;
+	/** Time window applied when loading: `until` truncated the file, `since` dropped earlier requests (window.ts). */
+	window?: { since?: string; until?: string };
 	entries: SessionEntry[];
 	byId: Map<string, SessionEntry>;
 	/** Root-to-leaf path of the active branch; the leaf is the last entry in the file, as pi resumes it. */

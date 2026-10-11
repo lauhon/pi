@@ -66,8 +66,6 @@ describe("cli", () => {
 		expect(all.stdout).toMatch(/^compaction\.jsonl/m);
 		const sol = run(["list", fixtures, "--model", "sol", "--json"]);
 		expect(JSON.parse(sol.stdout).map((row: { id: string }) => row.id)).toEqual(["model-change"]);
-		expect(run(["list", fixtures, "--since", "2027-01-01"]).stdout).toMatch(/0 sessions/);
-		expect(run(["list", fixtures, "--until", "2026-01-01"]).stdout).toMatch(/0 sessions/);
 		expect(run(["list", join(fixtures, "linear.jsonl")]).stdout).toMatch(/1 sessions, 3 requests/);
 		expect(run(["list", join(fixtures, "linear.jsonl"), join(fixtures, "fork.jsonl")]).stdout).toMatch(/2 sessions, 5 requests/);
 		expect(JSON.parse(run(["list", join(fixtures, "linear.jsonl"), "--json"]).stdout)[0]).toMatchObject({ version: 3, cwd: "/repo" });
@@ -77,9 +75,9 @@ describe("cli", () => {
 		const result = run(["summary", join(fixtures, "tool-errors.jsonl")]);
 		expect(result.code).toBe(0);
 		expect(result.stdout).toMatch(/^session tool-errors {2}turns 1 {2}requests 5/m);
-		expect(result.stdout).toMatch(/errors 2 \(read 2\) {2}missing path 2 {2}failed commands 0 {2}immediate repeats 1 of 1 identical/);
+		expect(result.stdout).toMatch(/errors 2 \(read 2\) {2}missing path 2 {2}failed commands 0 {2}retried after error 1 {2}immediate repeats 1 of 1 identical/);
 		expect(result.stdout).toMatch(/^ {3}1 {4}5/m);
-		expect(result.stdout).toMatch(/turn 1 {2}warn {2}repeated_identical_call: 1 identical call\(s\) repeated immediately/);
+		expect(result.stdout).toMatch(/turn 1 {2}warn {2}repeated_identical_call: 1 identical call\(s\) repeated immediately, 1 after an error/);
 		const json = JSON.parse(run(["summary", join(fixtures, "tool-errors.jsonl"), "--json"]).stdout);
 		expect(json.turnObservables).toHaveLength(1);
 		expect(json.findings.map((finding: { kind: string }) => finding.kind)).toEqual(["repeated_identical_call", "missing_path_error"]);
@@ -91,7 +89,7 @@ describe("cli", () => {
 		expect(result.stdout).toMatch(/^17 sessions \(.*fixtures: 17\), 54 assistant requests, recorded cost \$/m);
 		expect(result.stdout).toMatch(/cost concentration: most expensive session \d+\.\d%, five most expensive \d+\.\d%/);
 		expect(result.stdout).toMatch(/^gpt-5\.6-terra +53 +\$/m);
-		expect(result.stdout).toMatch(/tool errors 3 \(read 2, bash 1\): 2 missing-path, 1 failed commands, 1 immediately repeated an identical call \(2 identical calls in all\)/);
+		expect(result.stdout).toMatch(/tool errors 3 \(read 2, bash 1\): 2 missing-path, 1 failed commands, 1 retried with an identical call right after failing \(1 immediate repeats of any kind, 2 identical calls in all\)/);
 		expect(result.stdout).toMatch(/compactions 2; largest request context 70k tokens/);
 		expect(result.stdout).toMatch(/responses over 2,000 chars: 2; over 5,000: 1/);
 		const json = JSON.parse(run(["summary", fixtures, "--json", "--limit", "2", "--exclude", "compaction"]).stdout);
@@ -105,12 +103,31 @@ describe("cli", () => {
 		const result = run(["rank", fixtures, "--limit", "3"]);
 		expect(result.code).toBe(0);
 		const lines = result.stdout.trimEnd().split("\n");
-		expect(lines[2]).toMatch(/^ 1\.00 .*aborted-and-cache-drop\.jsonl$/);
-		expect(lines[3]).toMatch(/rewind-with-summary\.jsonl|fork\.jsonl|correction-turn\.jsonl/);
-		expect(lines[lines.length - 1]).toMatch(/^3 sessions ranked/);
+		expect(lines[2]).toMatch(/^ 1\.00 .*\.jsonl$/);
+		expect(lines[lines.length - 1]).toMatch(/^3 sessions ranked; a component is the session's rate per 100 requests/);
 		const json = JSON.parse(run(["rank", fixtures, "--json"]).stdout);
-		expect(json[0]).toMatchObject({ path: join(fixtures, "aborted-and-cache-drop.jsonl"), score: 1 });
+		const aborted = json.find((row: { path: string }) => row.path === join(fixtures, "aborted-and-cache-drop.jsonl"));
+		expect(aborted).toMatchObject({ score: 1, components: { aborted: 1 }, rates: { aborted: 50 } });
+		expect(json[0].score).toBe(1);
 		expect(json[json.length - 1].score).toBe(0);
+		expect(json.map((row: { score: number }) => row.score)).toEqual([...json.map((row: { score: number }) => row.score)].sort((a, b) => b - a));
+	});
+
+	it("--until shows a session as it was then and --since drops earlier requests", () => {
+		const file = join(fixtures, "compaction.jsonl");
+		const then = JSON.parse(run(["summary", file, "--until", "2026-08-01T10:00:07.000Z", "--json"]).stdout);
+		expect(then).toMatchObject({ requests: 3, compactions: 0, turns: 2 });
+		const after = JSON.parse(run(["summary", file, "--since", "2026-08-01T10:00:09.000Z", "--json"]).stdout);
+		expect(after).toMatchObject({ requests: 2, turns: 1 });
+		expect(run(["summary", file, "--until", "2026-08-01"]).stderr).toMatch(/no requests inside the window/);
+		const inspected = JSON.parse(run(["inspect", file, "--until", "2026-08-01T10:00:07.000Z", "--json"]).stdout);
+		expect(inspected.window).toEqual({ until: "2026-08-01T10:00:07.000Z" });
+		expect(inspected.entryCount).toBe(7);
+		const dir = run(["list", fixtures, "--until", "2026-08-01T10:00:03.000Z"]);
+		expect(dir.stdout).toMatch(/ sessions, /);
+		expect(dir.stdout).not.toMatch(/17 sessions/);
+		expect(run(["list", fixtures, "--since", "2027-01-01"]).stdout).toMatch(/0 sessions/);
+		expect(run(["list", fixtures, "--until", "2026-01-01"]).stdout).toMatch(/0 sessions/);
 	});
 
 	it("sanitize writes a sibling file by default and honors --out", () => {

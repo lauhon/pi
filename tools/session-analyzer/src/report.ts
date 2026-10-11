@@ -86,6 +86,7 @@ export function sessionJson(session: Session): Row {
 		cwd: session.cwd,
 		version: session.version,
 		parentSession: session.parentSession ?? null,
+		window: session.window ?? null,
 		startedAt: session.startedAt,
 		endedAt: session.endedAt,
 		durationMs: session.durationMs,

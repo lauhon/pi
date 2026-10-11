@@ -7,6 +7,7 @@
  * cue list and pattern table lives in one place here, as the spec asks.
  */
 import type { RequestPoint, Session, ToolCallRecord, ToolResultRecord, Turn } from "./types.ts";
+import { turnBeforeWindow } from "./window.ts";
 
 // ── Tables ─────────────────────────────────────────────────────────────────
 
@@ -107,6 +108,8 @@ export interface TurnObservables {
 	repeatedIdenticalCalls: number;
 	/** Of those, calls whose previous tool call in the same turn was the identical one. */
 	immediateRepeats: number;
+	/** Immediate repeats whose first call had failed: the audit's "immediately repeated an identical tool call". */
+	immediateRetriesAfterError: number;
 	rereadAfterCompaction: number;
 	/** Distinct paths whose read result is still in the final request's context after a later edit. */
 	staleFilesInContext: string[];
@@ -140,7 +143,7 @@ export interface Finding {
 
 interface SessionCallState {
 	seenHashes: Map<string, string>;
-	previousCall?: { key: string; entryId: string };
+	previousCall?: { key: string; entryId: string; isError: boolean };
 	seenErrorTexts: Set<string>;
 	readBeforeCompaction: Set<string>;
 	readAfterCompaction: Set<string>;
@@ -195,6 +198,7 @@ export function turnObservables(session: Session): TurnObservables[] {
 	const readPositions = new Map<string, number[]>();
 	for (const turn of session.turns) {
 		if (turn.index === 0 && turn.requestIndexes.length === 0) continue;
+		if (turnBeforeWindow(session, turn.index)) continue;
 		const requests = turn.requestIndexes.map((index) => session.requestPoints[index]);
 		// A repeat is "immediate" only without a user message in between: a user asking for the
 		// same call again is not a blind retry.
@@ -258,6 +262,7 @@ function observeTurn(
 	let missingPathErrors = 0;
 	let repeatedIdenticalCalls = 0;
 	let immediateRepeats = 0;
+	let immediateRetriesAfterError = 0;
 	let rereadAfterCompaction = 0;
 	let textBeforeFirstTool = 0;
 	let sawToolCall = false;
@@ -294,11 +299,14 @@ function observeTurn(
 			const key = callKey(call);
 			if (state.seenHashes.has(key)) {
 				repeatedIdenticalCalls++;
-				if (state.previousCall?.key === key) immediateRepeats++;
+				if (state.previousCall?.key === key) {
+					immediateRepeats++;
+					if (state.previousCall.isError) immediateRetriesAfterError++;
+				}
 			} else {
 				state.seenHashes.set(key, rp.assistantEntryId);
 			}
-			state.previousCall = { key, entryId: rp.assistantEntryId };
+			state.previousCall = { key, entryId: rp.assistantEntryId, isError: resultById.get(call.id)?.isError === true };
 			if (READ_TOOLS.has(call.name) && call.path) {
 				filesRead.add(call.path);
 				if (state.compactionSeen && state.readBeforeCompaction.has(call.path)) rereadAfterCompaction++;
@@ -374,6 +382,7 @@ function observeTurn(
 		missingPathErrors,
 		repeatedIdenticalCalls,
 		immediateRepeats,
+		immediateRetriesAfterError,
 		rereadAfterCompaction,
 		staleFilesInContext: last ? staleFiles(last, state.lastWriteByPath, readPositions, branchIndex) : [],
 		textBeforeFirstTool,
@@ -436,7 +445,7 @@ export function sessionFindings(session: Session, turns: TurnObservables[]): Fin
 	const evidence = (turn: TurnObservables) => (turn.userEntryId ? [turn.userEntryId] : []);
 	for (const turn of turns) {
 		if (turn.errorRunMax >= THRESHOLDS.errorRunWarn) findings.push({ kind: "error_run", severity: "warn", turnIndex: turn.turnIndex, evidence: evidence(turn), message: `${turn.errorRunMax} consecutive tool errors` });
-		if (turn.immediateRepeats > 0) findings.push({ kind: "repeated_identical_call", severity: "warn", turnIndex: turn.turnIndex, evidence: evidence(turn), message: `${turn.immediateRepeats} identical call(s) repeated immediately` });
+		if (turn.immediateRepeats > 0) findings.push({ kind: "repeated_identical_call", severity: "warn", turnIndex: turn.turnIndex, evidence: evidence(turn), message: `${turn.immediateRepeats} identical call(s) repeated immediately, ${turn.immediateRetriesAfterError} after an error` });
 		if (turn.missingPathErrors > 0) findings.push({ kind: "missing_path_error", severity: "info", turnIndex: turn.turnIndex, evidence: evidence(turn), message: `${turn.missingPathErrors} missing-path error(s)` });
 		if (turn.correctionTurn) findings.push({ kind: "correction_turn", severity: "warn", turnIndex: turn.turnIndex, evidence: evidence(turn), message: "user corrected the previous turn" });
 		if (turn.rewinds > 0) findings.push({ kind: "rewind", severity: "warn", turnIndex: turn.turnIndex, evidence: evidence(turn), message: `${turn.rewinds} rewind(s) from this turn` });
@@ -491,6 +500,7 @@ export interface SessionSummary {
 	failedCommands: number;
 	repeatedIdenticalCalls: number;
 	immediateRepeats: number;
+	immediateRetriesAfterError: number;
 	errorRunMax: number;
 	repeatedErrorText: number;
 	rereadAfterCompaction: number;
@@ -545,7 +555,7 @@ export function sessionSummary(session: Session): SessionSummary {
 		cwd: session.cwd,
 		startedAt: session.startedAt,
 		durationMs: session.durationMs,
-		turns: session.turns.length - 1,
+		turns: session.turns.filter((turn) => turn.index > 0 && !turnBeforeWindow(session, turn.index)).length,
 		requests: session.requestPoints.length,
 		cost,
 		otherCost,
@@ -565,6 +575,7 @@ export function sessionSummary(session: Session): SessionSummary {
 		failedCommands: [...SHELL_TOOLS].reduce((total, name) => total + (toolErrorsByName[name] ?? 0), 0),
 		repeatedIdenticalCalls: sum((turn) => turn.repeatedIdenticalCalls),
 		immediateRepeats: sum((turn) => turn.immediateRepeats),
+		immediateRetriesAfterError: sum((turn) => turn.immediateRetriesAfterError),
 		errorRunMax: turns.reduce((max, turn) => Math.max(max, turn.errorRunMax), 0),
 		repeatedErrorText: sum((turn) => turn.repeatedErrorText),
 		rereadAfterCompaction: sum((turn) => turn.rereadAfterCompaction),
@@ -604,6 +615,7 @@ export interface DirectorySummary {
 	missingPathErrors: number;
 	failedCommands: number;
 	immediateRepeats: number;
+	immediateRetriesAfterError: number;
 	repeatedIdenticalCalls: number;
 	compactions: number;
 	peakContextTokens: number;
@@ -651,6 +663,7 @@ export function directorySummary(summaries: SessionSummary[]): DirectorySummary 
 		missingPathErrors: sum((summary) => summary.missingPathErrors),
 		failedCommands: sum((summary) => summary.failedCommands),
 		immediateRepeats: sum((summary) => summary.immediateRepeats),
+		immediateRetriesAfterError: sum((summary) => summary.immediateRetriesAfterError),
 		repeatedIdenticalCalls: sum((summary) => summary.repeatedIdenticalCalls),
 		compactions: sum((summary) => summary.compactions),
 		peakContextTokens: summaries.reduce((max, summary) => Math.max(max, summary.peakContextTokens), 0),

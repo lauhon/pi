@@ -2,27 +2,50 @@ import { describe, expect, it } from "vitest";
 import { SessionBuilder } from "../fixtures/build.ts";
 import { SHAPES } from "../fixtures/shapes.ts";
 import { parseSession } from "./load.ts";
-import { sessionSummary } from "./observables.ts";
-import { RANK_CAPS, rankSessions, scoreSession } from "./rank.ts";
+import { sessionSummary, type SessionSummary } from "./observables.ts";
+import { rankScales, rankSessions, rateOf, scoreSession } from "./rank.ts";
 
-function summarize(name: keyof typeof SHAPES) {
+function summarize(name: keyof typeof SHAPES): SessionSummary {
 	return sessionSummary(parseSession(SHAPES[name]().toJsonl(), `${name}.jsonl`));
 }
 
-describe("scoreSession", () => {
-	it("normalizes each signal by its cap and sums them", () => {
-		const aborted = scoreSession(summarize("abortedAndCacheDrop"));
-		expect(aborted.components).toEqual({ correctionTurns: 0, rewinds: 0, errorRuns: 0, repeatedIdenticalCalls: 0, aborted: 1, largeContext: 0 });
-		expect(aborted.score).toBe(1);
-		const correction = scoreSession(summarize("correctionTurn"));
-		expect(correction.components.correctionTurns).toBeCloseTo(1 / RANK_CAPS.correctionTurns, 3);
-		expect(correction.score).toBeCloseTo(1 / RANK_CAPS.correctionTurns, 3);
-		expect(scoreSession(summarize("linear")).score).toBe(0);
-		expect(scoreSession(summarize("fork")).components.rewinds).toBeCloseTo(1 / RANK_CAPS.rewinds, 3);
-		expect(scoreSession(summarize("toolErrors")).components.repeatedIdenticalCalls).toBeCloseTo(1 / RANK_CAPS.repeatedIdenticalCalls, 3);
+/** `requests` plain requests with `aborted` of them aborted. */
+function session(id: string, requests: number, aborted: number): SessionSummary {
+	const b = new SessionBuilder({ id });
+	b.user("go");
+	for (let i = 0; i < requests; i++) b.assistant({ text: "ok", stopReason: i < aborted ? "aborted" : "stop" });
+	return sessionSummary(parseSession(b.toJsonl(), `${id}.jsonl`));
+}
+
+describe("rates and scales", () => {
+	it("expresses each signal per 100 requests", () => {
+		expect(rateOf(summarize("abortedAndCacheDrop"), "aborted")).toBe(50);
+		expect(rateOf(summarize("correctionTurn"), "correctionTurns")).toBeCloseTo(100 / 7, 6);
+		expect(rateOf(summarize("linear"), "rewinds")).toBe(0);
+		expect(rateOf(session("short", 10, 2), "aborted")).toBe(20);
+		expect(rateOf(session("long", 200, 2), "aborted")).toBe(1);
 	});
 
-	it("clips a runaway signal at one and scores context above 200k", () => {
+	it("scales by the 90th percentile, falling back to the maximum and then to one", () => {
+		const scales = rankScales([session("a", 10, 1), session("b", 10, 2), session("c", 10, 0), session("d", 10, 5)]);
+		expect(scales.aborted).toBe(50);
+		expect(scales.rewinds).toBe(1);
+		expect(rankScales([session("only", 10, 3)]).aborted).toBe(30);
+		expect(rankScales([]).aborted).toBe(1);
+	});
+});
+
+describe("scoreSession", () => {
+	it("ranks a short session with the same count above a long one, instead of by size", () => {
+		const short = session("short", 10, 2);
+		const long = session("long", 200, 2);
+		const ranked = rankSessions([short, long]);
+		expect(ranked.map((row) => row.path)).toEqual(["short.jsonl", "long.jsonl"]);
+		expect(ranked[0].components.aborted).toBe(1);
+		expect(ranked[1].components.aborted).toBeCloseTo(1 / 20, 3);
+	});
+
+	it("clips every component at one and scores context above 200k on its own", () => {
 		const b = new SessionBuilder();
 		b.user("go");
 		b.assistant({ text: "a".repeat(1200) });
@@ -34,24 +57,33 @@ describe("scoreSession", () => {
 		b.assistant({ text: "c", stopReason: "aborted", usage: { input: 310_000 } });
 		for (let i = 0; i < 4; i++) b.toolTurn("read", { path: "/x" }, "ENOENT: no such file or directory", { isError: true });
 		b.assistant({ text: "d" });
-		const scored = scoreSession(sessionSummary(parseSession(b.toJsonl(), "bad.jsonl")));
-		expect(scored.components.correctionTurns).toBe(1);
-		expect(scored.components.largeContext).toBe(1);
-		expect(scored.components.aborted).toBeCloseTo(1 / RANK_CAPS.aborted, 3);
-		expect(scored.components.errorRuns).toBeCloseTo(1 / RANK_CAPS.errorRuns, 3);
-		expect(scored.components.repeatedIdenticalCalls).toBeCloseTo(3 / RANK_CAPS.repeatedIdenticalCalls, 3);
+		const bad = sessionSummary(parseSession(b.toJsonl(), "bad.jsonl"));
+		const scored = scoreSession(bad, rankScales([bad, summarize("linear")]));
+		expect(scored.components).toEqual({ correctionTurns: 1, rewinds: 0, errorRuns: 1, repeatedIdenticalCalls: 1, aborted: 1, largeContext: 1 });
+		expect(scored.score).toBe(5);
+		expect(scored.rates.correctionTurns).toBeCloseTo((5 / 12) * 100, 2);
 		const mild = new SessionBuilder();
 		mild.user("go");
 		mild.assistant({ text: "ok", usage: { input: 250_000 } });
 		expect(scoreSession(sessionSummary(parseSession(mild.toJsonl(), "mild.jsonl"))).components.largeContext).toBe(0.5);
+		expect(scoreSession(summarize("linear")).score).toBe(0);
 	});
 });
 
 describe("rankSessions", () => {
-	it("orders by score, then cost, then path", () => {
+	it("orders by score, then cost, then path, with directory-wide scales", () => {
 		const ranked = rankSessions([summarize("linear"), summarize("correctionTurn"), summarize("abortedAndCacheDrop"), summarize("fork"), summarize("compaction")]);
-		expect(ranked.map((row) => row.path)).toEqual(["abortedAndCacheDrop.jsonl", "correctionTurn.jsonl", "fork.jsonl", "compaction.jsonl", "linear.jsonl"]);
-		expect(ranked[1].score).toBeCloseTo(ranked[2].score, 6);
-		expect(ranked[1].summary.cost).toBeGreaterThan(ranked[2].summary.cost);
+		// Each of the four signal carriers is the only (or joint-highest) source of its signal, so
+		// every one of them scores exactly 1 and the tie breaks by cost; linear carries nothing.
+		expect(ranked.map((row) => [row.path, row.score])).toEqual([
+			["compaction.jsonl", 1],
+			["abortedAndCacheDrop.jsonl", 1],
+			["correctionTurn.jsonl", 1],
+			["fork.jsonl", 1],
+			["linear.jsonl", 0],
+		]);
+		expect(ranked.find((row) => row.path === "fork.jsonl")!.components.rewinds).toBe(1);
+		expect(ranked.find((row) => row.path === "correctionTurn.jsonl")!.components.correctionTurns).toBe(1);
+		expect(ranked.find((row) => row.path === "compaction.jsonl")!.components.repeatedIdenticalCalls).toBe(1);
 	});
 });

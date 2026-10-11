@@ -139,12 +139,21 @@ export function toolCallRecord(call: ToolCall): ToolCallRecord {
 
 // ── Loading ────────────────────────────────────────────────────────────────
 
-export function loadSession(path: string): Session {
-	return parseSession(readFileSync(path, "utf8"), path);
+export interface ParseOptions {
+	/**
+	 * Keep only entries written at or before this time (ISO 8601). Entries are appended in time
+	 * order, so this is the file as it was at that moment: the active branch ends at the last
+	 * entry before the cut, and later forks and compactions do not exist yet.
+	 */
+	until?: string;
+}
+
+export function loadSession(path: string, options: ParseOptions = {}): Session {
+	return parseSession(readFileSync(path, "utf8"), path, options);
 }
 
 /** Pure: parse JSONL content into a Session. Throws when the first line is not a session header. */
-export function parseSession(content: string, path: string): Session {
+export function parseSession(content: string, path: string, options: ParseOptions = {}): Session {
 	const fileEntries: FileEntry[] = parseSessionEntries(content);
 	const header = fileEntries[0];
 	if (!header || header.type !== "session" || typeof header.id !== "string") {
@@ -152,7 +161,10 @@ export function parseSession(content: string, path: string): Session {
 	}
 	const version = (header as SessionHeader).version ?? 1;
 	migrateSessionEntries(fileEntries);
-	const entries = fileEntries.filter((entry): entry is SessionEntry => entry.type !== "session");
+	const untilMs = options.until === undefined ? undefined : parseTime(options.until, "until");
+	const entries = fileEntries.filter(
+		(entry): entry is SessionEntry => entry.type !== "session" && (untilMs === undefined || Date.parse(entry.timestamp) <= untilMs),
+	);
 	const byId = new Map<string, SessionEntry>();
 	for (const entry of entries) byId.set(entry.id, entry);
 	const leafId = entries.length > 0 ? entries[entries.length - 1].id : null;
@@ -193,6 +205,7 @@ export function parseSession(content: string, path: string): Session {
 		id: header.id,
 		cwd: (header as SessionHeader).cwd ?? "",
 		version,
+		...(options.until !== undefined ? { window: { until: options.until } } : {}),
 		...((header as SessionHeader).parentSession ? { parentSession: (header as SessionHeader).parentSession } : {}),
 		entries,
 		byId,
@@ -210,6 +223,12 @@ export function parseSession(content: string, path: string): Session {
 		endedAt,
 		durationMs,
 	};
+}
+
+export function parseTime(value: string, name: string): number {
+	const ms = Date.parse(value);
+	if (Number.isNaN(ms)) throw new Error(`${name}: not a date: ${value}`);
+	return ms;
 }
 
 function walkToRoot(leafId: string | null, byId: Map<string, SessionEntry>): SessionEntry[] {

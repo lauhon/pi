@@ -125,6 +125,7 @@ describe("turnObservables", () => {
 			repeatedErrorText: 1,
 			repeatedIdenticalCalls: 1,
 			immediateRepeats: 1,
+			immediateRetriesAfterError: 1,
 			toolCalls: 4,
 		});
 		expect(result[0].filesRead).toEqual(["/repo/docs/adr-001.md", "/repo/docs/0001-record.md"]);
@@ -141,6 +142,16 @@ describe("turnObservables", () => {
 		b.assistant({ text: "done again" });
 		const result = turnObservables(parseSession(b.toJsonl(), "again.jsonl"));
 		expect(result[1]).toMatchObject({ repeatedIdenticalCalls: 1, immediateRepeats: 0 });
+	});
+
+	it("counts an immediate repeat of a successful call, but not as a retry after an error", () => {
+		const b = new SessionBuilder();
+		b.user("status");
+		b.toolTurn("bash", { command: "git status" }, "clean");
+		b.toolTurn("bash", { command: "git status" }, "clean");
+		b.assistant({ text: "clean twice" });
+		const result = turnObservables(parseSession(b.toJsonl(), "twice.jsonl"));
+		expect(result[0]).toMatchObject({ repeatedIdenticalCalls: 1, immediateRepeats: 1, immediateRetriesAfterError: 0 });
 	});
 
 	it("tells an identical call apart from an immediate repeat", () => {
@@ -202,7 +213,7 @@ describe("turnObservables", () => {
 describe("sessionSummary", () => {
 	it("totals the turns and describes cost, models and findings", () => {
 		const summary = sessionSummary(load("toolErrors"));
-		expect(summary).toMatchObject({ turns: 1, requests: 5, toolCalls: 4, toolErrors: 2, missingPathErrors: 2, failedCommands: 0, immediateRepeats: 1, repeatedIdenticalCalls: 1, errorRunMax: 2, compactions: 0, forks: 0 });
+		expect(summary).toMatchObject({ turns: 1, requests: 5, toolCalls: 4, toolErrors: 2, missingPathErrors: 2, failedCommands: 0, immediateRepeats: 1, immediateRetriesAfterError: 1, repeatedIdenticalCalls: 1, errorRunMax: 2, compactions: 0, forks: 0 });
 		expect(summary.modelMix).toEqual([{ model: "gpt-5.6-terra", requests: 5, cost: summary.cost, outputTokens: 500 }]);
 		expect(summary.topRequestCostShare).toBeCloseTo(0.2, 6);
 		expect(summary.top5RequestCostShare).toBeCloseTo(1, 6);
@@ -252,7 +263,7 @@ describe("directorySummary", () => {
 		expect(result.top5SessionCostShare).toBeCloseTo(1, 8);
 		expect(result.modelMix).toHaveLength(1);
 		expect(result.modelMix[0]).toMatchObject({ model: "gpt-5.6-terra", requests: result.requests, requestShare: 1, costShare: 1 });
-		expect(result).toMatchObject({ toolErrors: 3, toolErrorsByName: { read: 2, bash: 1 }, missingPathErrors: 2, failedCommands: 1, immediateRepeats: 1, repeatedIdenticalCalls: 2, compactions: 1, peakContextTokens: 70_000, longResponses: 2, veryLongResponses: 1, aborted: 2 });
+		expect(result).toMatchObject({ toolErrors: 3, toolErrorsByName: { read: 2, bash: 1 }, missingPathErrors: 2, failedCommands: 1, immediateRepeats: 1, immediateRetriesAfterError: 1, repeatedIdenticalCalls: 2, compactions: 1, peakContextTokens: 70_000, longResponses: 2, veryLongResponses: 1, aborted: 2 });
 		expect(result.sessionsBySize[0].path).toBe("compaction.jsonl");
 		expect(directorySummary([])).toMatchObject({ sessions: 0, requests: 0, cost: 0, topSessionCostShare: 0, modelMix: [] });
 	});

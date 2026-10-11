@@ -22,6 +22,7 @@ import { rankSessions } from "./rank.ts";
 import { fmtCost, fmtDate, fmtDuration, fmtInt, fmtPct, fmtTokens, renderTable, sessionJson, shortModel, toJson, type Row } from "./report.ts";
 import { sanitizeJsonl } from "./sanitize.ts";
 import type { RequestPoint, Session } from "./types.ts";
+import { sliceSince } from "./window.ts";
 
 const USAGE = `usage: npm run analyze -- <subcommand> [args] [--json]
 
@@ -35,7 +36,9 @@ const USAGE = `usage: npm run analyze -- <subcommand> [args] [--json]
   summary <dir>...             directory totals in the shape of the August audit
   rank <dir>...                sessions by bad-signal score, highest first
 
-options: --json  --model <substring>  --since <iso>  --until <iso>  --exclude <substring>  --limit <n>
+options: --json  --model <substring>  --exclude <path substring>  --limit <n>
+         --until <iso>  each session as it was at that time (the file truncated there)
+         --since <iso>  only requests at or after that time
 `;
 
 export interface CliOptions {
@@ -141,15 +144,15 @@ export interface LoadedSession {
 	root: string;
 }
 
-/** Every session under the given roots (files or directories), filtered by the options. */
+/** Every session under the given roots (files or directories), windowed and filtered by the options. */
 export function loadDirectories(roots: string[], options: CliOptions): { loaded: LoadedSession[]; warnings: string[] } {
 	const loaded: LoadedSession[] = [];
 	const warnings: string[] = [];
 	for (const root of roots) {
 		for (const file of findSessionFiles(root)) {
 			try {
-				const session = loadSession(file);
-				if (keepSession(session, options)) loaded.push({ session, root });
+				const session = loadWindowed(file, options);
+				if (session && keepSession(session, options)) loaded.push({ session, root });
 			} catch (error) {
 				warnings.push(`skipped ${file}: ${(error as Error).message}`);
 			}
@@ -158,14 +161,26 @@ export function loadDirectories(roots: string[], options: CliOptions): { loaded:
 	return { loaded, warnings };
 }
 
+/** One session with --until and --since applied; null when a window leaves no request in it. */
+export function loadWindowed(file: string, options: CliOptions): Session | null {
+	let session: Session | null = loadSession(file, { until: options.until });
+	if (options.since) session = sliceSince(session, options.since);
+	if (session && (options.since || options.until) && session.requestPoints.length === 0) return null;
+	return session;
+}
+
+function requireWindowed(file: string, options: CliOptions): Session {
+	const session = loadWindowed(file, options);
+	if (!session) throw new Error(`${file}: no requests inside the window`);
+	return session;
+}
+
 export function displayPath(entry: LoadedSession): string {
 	return statSync(entry.root).isFile() ? entry.root : relative(entry.root, entry.session.path);
 }
 
 function keepSession(session: Session, options: CliOptions): boolean {
 	if (options.exclude && session.path.includes(options.exclude)) return false;
-	if (options.since && session.startedAt < options.since) return false;
-	if (options.until && session.startedAt > options.until) return false;
 	if (options.model && !session.requestPoints.some((rp) => rp.model.includes(options.model!))) return false;
 	return true;
 }
@@ -241,7 +256,7 @@ function distinct<T>(values: T[]): T[] {
 // ── inspect ────────────────────────────────────────────────────────────────
 
 function inspect(file: string, options: CliOptions): CliResult {
-	const session = loadSession(file);
+	const session = requireWindowed(file, options);
 	if (options.json) return { stdout: `${toJson(sessionJson(session))}\n`, stderr: "", code: 0 };
 	const lines: string[] = [];
 	lines.push(`session ${session.id}  version ${session.version}  cwd ${session.cwd}${session.parentSession ? `  parent ${session.parentSession}` : ""}`);
@@ -357,7 +372,7 @@ export function cacheHitRatio(rp: RequestPoint): number {
 function inventory(roots: string[], options: CliOptions): CliResult {
 	const single = roots.length === 1 && statSync(roots[0]).isFile();
 	if (!single) return inventoryOfDirectory(roots, options);
-	const session = loadSession(roots[0]);
+	const session = requireWindowed(roots[0], options);
 	if (options.turn !== undefined || options.request !== undefined) {
 		const rp = selectRequest(session, options);
 		const request = inventoryRequestPoint(rp, session);
@@ -483,14 +498,14 @@ function inventoryOfDirectory(roots: string[], options: CliOptions): CliResult {
 function summary(roots: string[], options: CliOptions): CliResult {
 	const single = roots.length === 1 && statSync(roots[0]).isFile();
 	if (!single) return summaryOfDirectory(roots, options);
-	const session = loadSession(roots[0]);
+	const session = requireWindowed(roots[0], options);
 	const result = sessionSummary(session);
 	if (options.json) return { stdout: `${toJson(result)}\n`, stderr: "", code: 0 };
 	const lines = [
 		`session ${result.id}  turns ${result.turns}  requests ${result.requests}  cost ${fmtCost(result.cost)}${result.otherCost > 0 ? ` (+${fmtCost(result.otherCost)} compaction/usage)` : ""}  peak context ${fmtTokens(result.peakContextTokens)}  duration ${fmtDuration(result.durationMs)}`,
 		`compactions ${result.compactions}${result.compactions > 0 ? ` (tokens before: ${result.compactionTokensBefore.map(fmtTokens).join(", ")})` : ""}  forks ${result.forks}  branch summaries ${result.branchSummaries}  model changes ${result.modelChanges}  thinking changes ${result.thinkingChanges}`,
 		`models: ${result.modelMix.map((row) => `${shortModel(row.model)} ${row.requests} req ${fmtCost(row.cost)}`).join("; ")}  top request ${fmtPct(result.topRequestCostShare)} of cost, top 5 ${fmtPct(result.top5RequestCostShare)}`,
-		`tool calls ${result.toolCalls} (${countList(result.toolCallsByName)})  errors ${result.toolErrors}${result.toolErrors > 0 ? ` (${countList(result.toolErrorsByName)})` : ""}  missing path ${result.missingPathErrors}  failed commands ${result.failedCommands}  immediate repeats ${result.immediateRepeats} of ${result.repeatedIdenticalCalls} identical`,
+		`tool calls ${result.toolCalls} (${countList(result.toolCallsByName)})  errors ${result.toolErrors}${result.toolErrors > 0 ? ` (${countList(result.toolErrorsByName)})` : ""}  missing path ${result.missingPathErrors}  failed commands ${result.failedCommands}  retried after error ${result.immediateRetriesAfterError}  immediate repeats ${result.immediateRepeats} of ${result.repeatedIdenticalCalls} identical`,
 		`questions ${result.askedQuestions}  narration-only ${result.narrationOnlyTurns}  corrections ${result.correctionTurns}  rewinds ${result.rewinds}  aborted ${result.aborted}  tests run ${result.testsRun}  edit churn ${result.editChurn}  stale-read turns ${result.staleFileTurns}  rereads after compaction ${result.rereadAfterCompaction}  long responses ${result.longResponses} (>5k: ${result.veryLongResponses})  cache hit mean ${fmtPct(result.cacheHitRatioMean)}  drops ${result.cacheDrops}`,
 		`injections: ${countList(result.injections) || "none"}`,
 		"",
@@ -604,7 +619,7 @@ function summaryOfDirectory(roots: string[], options: CliOptions): CliResult {
 		"",
 		mix,
 		"",
-		`tool errors ${fmtInt(result.toolErrors)}${result.toolErrors > 0 ? ` (${countList(result.toolErrorsByName)})` : ""}: ${result.missingPathErrors} missing-path, ${result.failedCommands} failed commands, ${result.immediateRepeats} immediately repeated an identical call (${result.repeatedIdenticalCalls} identical calls in all)`,
+		`tool errors ${fmtInt(result.toolErrors)}${result.toolErrors > 0 ? ` (${countList(result.toolErrorsByName)})` : ""}: ${result.missingPathErrors} missing-path, ${result.failedCommands} failed commands, ${result.immediateRetriesAfterError} retried with an identical call right after failing (${result.immediateRepeats} immediate repeats of any kind, ${result.repeatedIdenticalCalls} identical calls in all)`,
 		`compactions ${result.compactions}; largest request context ${fmtTokens(result.peakContextTokens)} tokens`,
 		`responses over 2,000 chars: ${result.longResponses}; over 5,000: ${result.veryLongResponses}`,
 		`corrections ${result.correctionTurns}, rewinds ${result.rewinds}, aborted ${result.aborted}, questions ${result.askedQuestions}, narration-only turns ${result.narrationOnlyTurns}, test runs ${result.testsRun}`,
@@ -621,7 +636,11 @@ function rank(roots: string[], options: CliOptions): CliResult {
 	const { summaries, warnings } = loadSummaries(roots, options);
 	const ranked = rankSessions(summaries).slice(0, options.limit ?? 50);
 	if (options.json) {
-		return { stdout: `${toJson(ranked.map(({ summary: s, ...rest }) => ({ ...rest, cost: s.cost, requests: s.requests, turns: s.turns, peakContextTokens: s.peakContextTokens, startedAt: s.startedAt })))}\n`, stderr: warnings.join("\n"), code: 0 };
+		return {
+			stdout: `${toJson(ranked.map(({ summary: s, ...rest }) => ({ ...rest, cost: s.cost, requests: s.requests, turns: s.turns, peakContextTokens: s.peakContextTokens, startedAt: s.startedAt })))}\n`,
+			stderr: warnings.join("\n"),
+			code: 0,
+		};
 	}
 	const table = renderTable(
 		[
@@ -649,7 +668,11 @@ function rank(roots: string[], options: CliOptions): CliResult {
 			path: row.path,
 		})),
 	);
-	return { stdout: `${table}\n${ranked.length} sessions ranked; components are count / cap, clipped to 1 (see rank.ts)\n`, stderr: warnings.join("\n"), code: 0 };
+	return {
+		stdout: `${table}\n${ranked.length} sessions ranked; a component is the session's rate per 100 requests over the directory's 90th percentile, clipped to 1; ctx is peak context above 200k per 100k (see rank.ts)\n`,
+		stderr: warnings.join("\n"),
+		code: 0,
+	};
 }
 
 // ── sanitize ───────────────────────────────────────────────────────────────

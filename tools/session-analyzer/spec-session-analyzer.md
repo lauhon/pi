@@ -234,7 +234,7 @@ and threshold in one place at the top of the file.
 | `tests_run` | bash command matching a test runner (`vitest`, `jest`, `pytest`, `npm test`, `go test`, `cargo test`); keep the list in one table | bash args |
 | `tool_error`, `error_run` | `isError` results by tool; the longest run of consecutive error results in the turn (`error_run` finding from 3); error texts equal to an earlier one in the session (`repeatedErrorText`); `bash`/`powershell` errors are the audit's "failed commands" | tool results |
 | `missing_path_error` | error text matching no-such-file patterns | tool results (audit finding 3) |
-| `repeated_identical_call` | same tool and same `argsHash` (arguments with keys sorted) as an earlier call in the session; "immediate" when the previous tool call of the same turn was the identical one, so a user asking again is not a blind retry | tool calls (audit: 55 cases) |
+| `repeated_identical_call` | same tool and same `argsHash` (arguments with keys sorted) as an earlier call in the session; "immediate" when the previous tool call of the same turn was the identical one, so a user asking again is not a blind retry; `immediateRetriesAfterError` is the subset whose first call failed, which is what the audit counted | tool calls (audit: 55 cases) |
 | `reread_after_compaction` | `read` of a path that was read before the latest compaction on the branch; it also counts as a `repeated_identical_call` when the arguments match | tool calls, compaction |
 | `stale_file_in_context` | at the turn's last request: paths with a successful `read` result still in pi's projection that an `edit` or `write` followed; a context edit that drops the result clears it | request context, tool calls |
 | `text_before_first_tool` | chars of assistant text preceding the first tool call | assistant content |
@@ -262,15 +262,34 @@ of the model mix; recorded cost = `cost`; cost concentration = `topSessionCostSh
 `missingPathErrors`; failed commands = `failedCommands`; immediate identical repeats =
 `immediateRepeats`; compactions = `compactions`; 314k = `peakContextTokens`; responses over
 2,000 and 5,000 chars = `longResponses` and `veryLongResponses`. `--model` keeps whole sessions
-that contain the model, as the audit did ("40 sessions containing GPT-5.6 responses"). This run
-has not happened yet: the container that implemented step 3 had no session files, so the
-numbers below are still the audit's, not the analyzer's.
+that contain the model, as the audit did ("40 sessions containing GPT-5.6 responses"). `--until`
+shows every session as it was at that time (the file truncated there, so later growth, forks and
+compactions do not exist yet); `--since` keeps only the requests at or after the cut.
+
+**Acceptance run, 2026-10-11, first attempt** (before `--until` truncated files; it filtered by
+session start). Two numbers matched exactly: the largest context (314k) and the most expensive
+session ($71.50, the audit's 47.9% of $149.38). The rest did not, for three reasons:
+
+| Audit | Analyzer | Cause |
+| --- | --- | --- |
+| 40 sessions: 15 interactive, 25 sub-runs | 17, all under `sessions/`, 0 under `~/.pi/pi-sub-runs` | The August sub-runs are no longer in the run dir. The 17 include the audit session itself (`--Users-laurenz-.pi--/2026-08-12T09-02-50…`), which `--exclude` removes. |
+| 2,047 turns, $149 | 2,071, $194.64 | Sessions that started before Aug 13 kept growing after the snapshot (the $52.31 session was at most about $25 on audit day). Fixed: `--until` now truncates. |
+| Sol 1,159, Terra 664, Luna 224 | Sol 1,727, Terra 314, Luna 5 | Both causes above: the missing sub-runs carried most Luna and Terra turns, later growth added Sol turns. |
+| 2 compactions | 10 | Compaction was enabled on Aug 12 near 250k; the sessions compacted after the snapshot. Fixed by truncation. |
+| 40 edit errors; 11 responses over 5k | 7; 3 | Mechanical edits and long final reports were sub-run work. |
+| 55 immediate identical repeats | 93 | Definition: the audit counted errors retried with an identical call. Added as `immediateRetriesAfterError`; the broader count stays as `immediateRepeats`. |
+
+Still open after the fixes: where the 25 August sub-run sessions are (`list ~/.pi --until
+2026-08-13` finds every session file under `~/.pi` whatever its directory), and one session with
+738 requests and zero recorded cost (an unpriced model would also lower the cost total).
 
 `rank.ts` scores a session for the labeling pass: a plain sum of `correction_turn`, `rewind`,
-`error_run` (turns with 3 or more consecutive errors), `repeated_identical_call`, `aborted` and
-peak context over 200k, each divided by a cap (3, 3, 3, 5, 2, and 100k tokens above 200k) and
-clipped to 1. The formula is a starting point and lives in one function with a comment that
-says so; the caps are one table next to it.
+`error_run` (turns with 3 or more consecutive errors), `repeated_identical_call` and `aborted`,
+each as a rate per 100 requests divided by the 90th percentile of that rate over the sessions
+being ranked and clipped to 1, plus peak context over 200k in units of 100k, clipped to 1. The
+first real run (2026-10-11) showed why rates: with fixed caps on raw counts, every session above
+about 300 requests saturated rewinds, repeats and aborts, and the ranking was by length. The
+formula is a starting point and lives in one function with a comment that says so.
 
 ## Labeling pass (step 4)
 
