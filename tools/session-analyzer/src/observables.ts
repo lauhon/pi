@@ -470,7 +470,7 @@ function stringArg(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
 }
 
-function assistantTextOf(session: Session, rp: RequestPoint): string {
+export function assistantTextOf(session: Session, rp: RequestPoint): string {
 	const entry = session.byId.get(rp.assistantEntryId);
 	if (!entry || entry.type !== "message" || entry.message.role !== "assistant") return "";
 	return (entry.message.content ?? [])
