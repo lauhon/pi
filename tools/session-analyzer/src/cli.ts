@@ -9,13 +9,16 @@
  *   summary <file>             per-turn observables, findings and session totals
  *   summary <dir>...           the August audit's quantitative section, computed
  *   rank <dir>...              sessions by bad-signal score, for the labeling pass
+ *   label <file>               the labeling worksheet: evidence, one block per turn, the record to fill
+ *   labels <json> [<dir>...]   check reports/session-labels.json; with dirs, the unlabeled sessions
  *
  * Output is a terminal table by default, or JSON with --json.
  */
-import { existsSync, statSync, writeFileSync, readFileSync } from "node:fs";
-import { relative } from "node:path";
+import { existsSync, readdirSync, statSync, writeFileSync, readFileSync } from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { inventoryDirectory, inventoryRequestPoint, inventorySession, type RequestInventory, type SourceTotal } from "./inventory.ts";
+import { ENDINGS, EXCERPT_CHARS, LEVELS, excerpt, labelEvidence, labelRecord, labelReport, labelTurns, parseLabels, turnFlags, type LabelEvidence, type LabelTurn } from "./labels.ts";
 import { findSessionFiles, loadSession, replaySystemMessages } from "./load.ts";
 import { directorySummary, formatFollowUps, sessionSummary, type ModelStats, type SessionSummary, type TurnObservables } from "./observables.ts";
 import { rankSessions } from "./rank.ts";
@@ -35,6 +38,8 @@ const USAGE = `usage: npm run analyze -- <subcommand> [args] [--json]
   summary <file>               per-turn observables, findings and session totals
   summary <dir>...             directory totals in the shape of the August audit
   rank <dir>...                sessions by bad-signal score, highest first
+  label <file>                 the labeling worksheet for one session (step 4)
+  labels <json> [<dir>...]     check the labels file; with dirs, list the unlabeled sessions by rank and cost
 
 options: --json  --model <substring of the id; claude-opus-5-5 is claude-opus-5.5>
          --exclude <path substring>  --limit <n>
@@ -107,6 +112,14 @@ export function run(argv: string[]): CliResult {
 				return summary(requirePaths(positionals, "summary <file|dir>..."), options);
 			case "rank":
 				return rank(requirePaths(positionals, "rank <dir>..."), options);
+			case "label":
+				return label(requirePath(positionals[0], "label <file>"), options);
+			case "labels":
+				return labels(
+					requirePath(positionals[0], "labels <json> [<dir>...]"),
+					positionals.slice(1).map((root) => requirePath(root, "labels <json> [<dir>...]")),
+					options,
+				);
 			case undefined:
 			case "help":
 			case "--help":
@@ -544,28 +557,19 @@ function turnColumns() {
 	];
 }
 
+function toolNames(byName: Record<string, number>): string {
+	return Object.entries(byName)
+		.map(([name, count]) => (count > 1 ? `${name}×${count}` : name))
+		.join(" ");
+}
+
 function turnRow(turn: TurnObservables): Row {
-	const flags = [
-		turn.askedQuestion ? "q" : "",
-		turn.narrationOnly ? "narr" : "",
-		turn.correctionTurn ? "corr" : "",
-		turn.rewinds > 0 ? `rew${turn.rewinds}` : "",
-		turn.aborted > 0 ? "abort" : "",
-		turn.longResponses > 0 ? (turn.veryLongResponses > 0 ? "long5k" : "long") : "",
-		turn.cacheDrops > 0 ? "drop" : "",
-		turn.rereadAfterCompaction > 0 ? "reread" : "",
-		turn.modelChanges > 0 ? "model" : "",
-		turn.thinkingChanges > 0 ? "think" : "",
-		Object.keys(turn.injections).length > 0 ? "inj" : "",
-	].filter(Boolean);
 	return {
 		turn: turn.turnIndex,
 		requests: turn.requests,
 		userChars: turn.userChars,
 		toolCalls: turn.toolCalls,
-		names: Object.entries(turn.toolCallsByName)
-			.map(([name, count]) => (count > 1 ? `${name}×${count}` : name))
-			.join(" "),
+		names: toolNames(turn.toolCallsByName),
 		files: `${turn.filesRead.length}/${turn.filesEdited.length}`,
 		testsRun: turn.testsRun,
 		toolErrors: turn.toolErrors,
@@ -574,7 +578,7 @@ function turnRow(turn: TurnObservables): Row {
 		immediateRepeats: turn.immediateRepeats,
 		editChurn: turn.editChurn,
 		stale: turn.staleFilesInContext.length,
-		flags: flags.join(" "),
+		flags: turnFlags(turn).join(" "),
 		finalTextChars: turn.finalTextChars,
 		ctx: fmtTokens(turn.peakContextTokens),
 		cache: fmtPct(turn.cacheHitRatioMin),
@@ -717,6 +721,227 @@ function rank(roots: string[], options: CliOptions): CliResult {
 		stderr: warnings.join("\n"),
 		code: 0,
 	};
+}
+
+// ── label ──────────────────────────────────────────────────────────────────
+
+interface NextSession {
+	path: string;
+	startedAt: string;
+	gapMs: number;
+	turns: number;
+	requests: number;
+	cost: number;
+	firstUser: string;
+}
+
+/**
+ * The session that followed this one in the same directory, by pi's timestamped file name
+ * (`<timestamp>_<id>.jsonl`): a follow-up that fixes this one is outcome evidence. Sub-run
+ * files are all called session.jsonl and have no next.
+ */
+function nextSessionInDirectory(file: string, session: Session): NextSession | undefined {
+	const dir = dirname(file);
+	const name = basename(file);
+	if (!/^\d/.test(name)) return undefined;
+	let names: string[];
+	try {
+		names = readdirSync(dir);
+	} catch {
+		return undefined;
+	}
+	const next = names.filter((candidate) => candidate.endsWith(".jsonl") && /^\d/.test(candidate) && candidate > name).sort()[0];
+	if (!next) return undefined;
+	const path = join(dir, next);
+	try {
+		const sibling = loadSession(path);
+		const firstTurn = sibling.turns.find((turn) => turn.userEntryId !== undefined);
+		return {
+			path,
+			startedAt: sibling.startedAt,
+			gapMs: Date.parse(sibling.startedAt) - Date.parse(session.endedAt),
+			turns: sibling.turns.length - 1,
+			requests: sibling.requestPoints.length,
+			cost: sessionCost(sibling),
+			firstUser: excerpt(firstTurn?.userText ?? "", EXCERPT_CHARS.user),
+		};
+	} catch {
+		return undefined;
+	}
+}
+
+function label(file: string, options: CliOptions): CliResult {
+	const session = requireWindowed(file, options);
+	const result = sessionSummary(session);
+	const evidence = labelEvidence(session, result.turnObservables);
+	const turns = labelTurns(session, result.turnObservables);
+	const next = nextSessionInDirectory(file, session);
+	const record = labelRecord(file);
+	if (options.json) {
+		const header = {
+			path: result.path,
+			id: result.id,
+			cwd: result.cwd,
+			...(session.parentSession ? { parentSession: session.parentSession } : {}),
+			startedAt: result.startedAt,
+			durationMs: result.durationMs,
+			turns: result.turns,
+			requests: result.requests,
+			cost: result.cost,
+			peakContextTokens: result.peakContextTokens,
+			compactions: result.compactions,
+			rewinds: result.rewinds,
+			modelMix: result.modelMix,
+		};
+		return { stdout: `${toJson({ session: header, evidence, next: next ?? null, turns, findings: result.findings, record })}\n`, stderr: "", code: 0 };
+	}
+	const lines = [
+		`session ${session.id}  ${file}${session.parentSession ? `  parent ${session.parentSession}` : ""}`,
+		`cwd ${session.cwd}  started ${fmtDate(session.startedAt)}  duration ${fmtDuration(session.durationMs)}  turns ${result.turns}  requests ${result.requests}  cost ${fmtCost(result.cost)}  peak context ${fmtTokens(result.peakContextTokens)}  compactions ${result.compactions}  models ${result.modelMix.map((row) => `${shortModel(row.model)} ${row.requests}`).join(", ")}`,
+		`evidence: ${evidenceLine(evidence)}`,
+		next
+			? `next session in this directory: ${basename(next.path)}, ${fmtDuration(Math.max(0, next.gapMs))} after this one ended, ${next.turns} turns, ${fmtCost(next.cost)}: "${next.firstUser}"`
+			: "next session in this directory: none",
+		"",
+	];
+	for (const turn of turns) lines.push(...turnBlock(turn));
+	if (result.findings.length > 0) {
+		lines.push("findings:");
+		for (const finding of result.findings) lines.push(`  turn ${finding.turnIndex}  ${finding.severity.padEnd(4)}  ${finding.kind}: ${finding.message}`);
+		lines.push("");
+	}
+	lines.push(`record (outcome good, bad or mixed; level ${LEVELS.join(", ")}):`, JSON.stringify(record));
+	return { stdout: `${lines.join("\n")}\n`, stderr: "", code: 0 };
+}
+
+function evidenceLine(evidence: LabelEvidence): string {
+	const at = (turns: number[]) => `turn${turns.length > 1 ? "s" : ""} ${turns.join(", ")}`;
+	return [
+		evidence.rewindTurns.length > 0 ? `rewinds at ${at(evidence.rewindTurns)}` : "no rewinds",
+		evidence.correctionTurns.length > 0 ? `corrections at ${at(evidence.correctionTurns)}` : "no corrections",
+		evidence.interruptedTurns.length > 0 ? `interrupted at ${at(evidence.interruptedTurns)}` : "",
+		evidence.erroredTurns.length > 0 ? `provider errors at ${at(evidence.erroredTurns)}` : "",
+		evidence.errorRunTurns.length > 0 ? `error runs at ${at(evidence.errorRunTurns)}` : "",
+		evidence.questionTurns.length > 0 ? `questions at ${at(evidence.questionTurns)}` : "",
+		`ended at turn ${evidence.lastTurn}: ${ENDINGS[evidence.ending]}`,
+		evidence.costliestTurns.length > 0
+			? `costliest ${at(evidence.costliestTurns.map((turn) => turn.turnIndex))} (${evidence.costliestTurns.map((turn) => fmtCost(turn.cost)).join(", ")})`
+			: "",
+	]
+		.filter(Boolean)
+		.join("; ");
+}
+
+function turnBlock(turn: LabelTurn): string[] {
+	const head = [
+		`turn ${turn.turnIndex}`,
+		`+${fmtDuration(turn.offsetMs)}`,
+		`req ${turn.requests}`,
+		fmtCost(turn.cost),
+		`tools ${turn.toolCalls}${turn.toolCalls > 0 ? `: ${toolNames(turn.toolCallsByName)}` : ""}`,
+		turn.toolErrors > 0 ? `err ${turn.toolErrors}${turn.missingPathErrors > 0 ? ` (missing path ${turn.missingPathErrors})` : ""}` : "",
+		turn.flags.length > 0 ? `flags ${turn.flags.join(" ")}` : "",
+	].filter(Boolean);
+	return [head.join("  "), `  user  ${turn.user || "(empty)"}`, `  final ${turn.final || "(no text)"}`, ""];
+}
+
+// ── labels ─────────────────────────────────────────────────────────────────
+
+function labels(file: string, roots: string[], options: CliOptions): CliResult {
+	const parsed = parseLabels(readFileSync(file, "utf8"));
+	const warnings: string[] = [];
+	let summaries: SessionSummary[] | undefined;
+	if (roots.length > 0) {
+		const loaded = loadSummaries(roots, options);
+		summaries = loaded.summaries;
+		warnings.push(...loaded.warnings);
+	}
+	const byPath = new Map((summaries ?? []).map((summary) => [resolve(summary.path), summary]));
+	const lastTurnOf = summaries
+		? (session: string) => {
+				const summary = byPath.get(resolve(session));
+				if (!summary) return undefined;
+				const last = summary.turnObservables[summary.turnObservables.length - 1];
+				return last ? last.turnIndex : 0;
+			}
+		: undefined;
+	const report = labelReport(parsed, lastTurnOf);
+	const labeled = new Set(parsed.labels.map((label) => resolve(label.session)));
+	const unlabeled = (summaries ?? []).filter((summary) => !labeled.has(resolve(summary.path)));
+	const limit = options.limit ?? 10;
+	const byRank = summaries ? rankSessions(summaries).filter((row) => !labeled.has(resolve(row.path))).slice(0, limit) : [];
+	const byCost = [...unlabeled].sort((a, b) => b.cost - a.cost || a.path.localeCompare(b.path)).slice(0, limit);
+	const code = report.problems.length > 0 ? 1 : 0;
+	if (options.json) {
+		const lists = summaries
+			? {
+					sessions: summaries.length,
+					unlabeled: unlabeled.length,
+					byRank: byRank.map((row) => ({ path: row.path, score: row.score, cost: row.summary.cost, requests: row.summary.requests })),
+					byCost: byCost.map((summary) => ({ path: summary.path, cost: summary.cost, requests: summary.requests, peakContextTokens: summary.peakContextTokens })),
+				}
+			: {};
+		return { stdout: `${toJson({ file, report, labels: parsed.labels, ...lists })}\n`, stderr: warnings.join("\n"), code };
+	}
+	const lines = [
+		`${file}: ${report.count} labels (good ${report.byOutcome.good}, bad ${report.byOutcome.bad}, mixed ${report.byOutcome.mixed}), ${report.problems.length} problems`,
+		`step 4 done when at least ${report.target} are labeled and every bad one has earliestSaveTurn and level: ${
+			report.done ? "met" : `not met (${report.count} of ${report.target}${report.incomplete.length > 0 ? `; incomplete: ${report.incomplete.join(", ")}` : ""})`
+		}`,
+	];
+	if (report.problems.length > 0) {
+		lines.push("problems:");
+		for (const problem of report.problems) lines.push(`  ${problem}`);
+	}
+	if (report.clusters.length > 0) {
+		lines.push(
+			"",
+			renderTable(
+				[
+					{ key: "level", label: "level" },
+					{ key: "total", label: "total", align: "right" },
+					{ key: "bad", label: "bad", align: "right" },
+					{ key: "mixed", label: "mixed", align: "right" },
+					{ key: "good", label: "good", align: "right" },
+				],
+				report.clusters.map((cluster) => ({ ...cluster })),
+			),
+		);
+	}
+	if (summaries) {
+		lines.push("", `${summaries.length} sessions under the given directories: ${summaries.length - unlabeled.length} labeled, ${unlabeled.length} not`);
+		if (byRank.length > 0) {
+			lines.push(
+				"",
+				"unlabeled, by rank:",
+				renderTable(
+					[
+						{ key: "score", label: "score", align: "right" },
+						{ key: "cost", label: "cost", align: "right" },
+						{ key: "requests", label: "req", align: "right" },
+						{ key: "path", label: "session", max: 90 },
+					],
+					byRank.map((row) => ({ score: row.score.toFixed(2), cost: fmtCost(row.summary.cost), requests: row.summary.requests, path: row.path })),
+				),
+			);
+		}
+		if (byCost.length > 0) {
+			lines.push(
+				"",
+				"unlabeled, by cost:",
+				renderTable(
+					[
+						{ key: "cost", label: "cost", align: "right" },
+						{ key: "requests", label: "req", align: "right" },
+						{ key: "peakContextTokens", label: "peak ctx", align: "right" },
+						{ key: "path", label: "session", max: 90 },
+					],
+					byCost.map((summary) => ({ cost: fmtCost(summary.cost), requests: summary.requests, peakContextTokens: fmtTokens(summary.peakContextTokens), path: summary.path })),
+				),
+			);
+		}
+	}
+	return { stdout: `${lines.join("\n")}\n`, stderr: warnings.join("\n"), code };
 }
 
 // ── sanitize ───────────────────────────────────────────────────────────────

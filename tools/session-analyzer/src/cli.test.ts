@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -134,6 +134,76 @@ describe("cli", () => {
 		expect(dir.stdout).not.toMatch(/17 sessions/);
 		expect(run(["list", fixtures, "--since", "2027-01-01"]).stdout).toMatch(/0 sessions/);
 		expect(run(["list", fixtures, "--until", "2026-01-01"]).stdout).toMatch(/0 sessions/);
+	});
+
+	it("label prints the evidence, one block per turn and the record to fill", () => {
+		const file = join(fixtures, "correction-turn.jsonl");
+		const result = run(["label", file]);
+		expect(result.code).toBe(0);
+		expect(result.stdout).toMatch(/^session correction-turn {2}.*correction-turn\.jsonl$/m);
+		expect(result.stdout).toMatch(/^cwd \/repo {2}started 2026-.*turns 3 {2}requests 7 {2}cost \$/m);
+		expect(result.stdout).toMatch(/^evidence: no rewinds; corrections at turn 2; questions at turn 2; ended at turn 3: the agent answered; costliest turns \d, \d, \d \(/m);
+		expect(result.stdout).toMatch(/^next session in this directory: none$/m);
+		expect(result.stdout).toMatch(/^turn 2 {2}\+\d+[smh].*req 2 {2}\$[\d.]+ {2}tools 1: edit {2}flags q corr$/m);
+		expect(result.stdout).toMatch(/^ {2}user {2}No, I meant the helper in b\.ts, not a\.ts$/m);
+		expect(result.stdout).toMatch(/^ {2}final Renamed it in b\.ts\. Should I revert the change in a\.ts\?$/m);
+		expect(result.stdout).toMatch(/^turn 3 {2}.*tools 0 {2}flags narr$/m);
+		expect(result.stdout).toMatch(/^findings:$/m);
+		expect(result.stdout).toMatch(/^record \(outcome good, bad or mixed; level prompt, instructions, model, structure, process, tooling, habit, unknown\):$/m);
+		expect(result.stdout.trimEnd().split("\n").pop()).toBe(JSON.stringify({ session: file, outcome: "", earliestSaveTurn: null, level: "", note: "" }));
+		const json = JSON.parse(run(["label", file, "--json"]).stdout);
+		expect(json.session).toMatchObject({ id: "correction-turn", turns: 3, requests: 7 });
+		expect(json.evidence).toMatchObject({ correctionTurns: [2], ending: "answered" });
+		expect(json.turns).toHaveLength(3);
+		expect(json.next).toBeNull();
+		expect(json.record.session).toBe(file);
+	});
+
+	it("label names the next session in the directory when the files are timestamped", () => {
+		const dir = mkdtempSync(join(tmpdir(), "analyzer-label-"));
+		copyFileSync(join(fixtures, "linear.jsonl"), join(dir, "2026-08-01T10-00-00_a.jsonl"));
+		copyFileSync(join(fixtures, "correction-turn.jsonl"), join(dir, "2026-08-01T12-00-00_b.jsonl"));
+		copyFileSync(join(fixtures, "fork.jsonl"), join(dir, "notes.jsonl"));
+		const first = run(["label", join(dir, "2026-08-01T10-00-00_a.jsonl")]);
+		expect(first.stdout).toMatch(/^next session in this directory: 2026-08-01T12-00-00_b\.jsonl, \d+[smh].* after this one ended, 3 turns, \$[\d.]+: "Rename the helper in the loader"$/m);
+		expect(run(["label", join(dir, "2026-08-01T12-00-00_b.jsonl")]).stdout).toMatch(/^next session in this directory: none$/m);
+		expect(run(["label", join(dir, "notes.jsonl")]).stdout).toMatch(/^next session in this directory: none$/m);
+	});
+
+	it("labels checks the file and lists what is left to label", () => {
+		const dir = mkdtempSync(join(tmpdir(), "analyzer-labels-"));
+		const file = join(dir, "session-labels.json");
+		writeFileSync(
+			file,
+			JSON.stringify([
+				{ session: join(fixtures, "correction-turn.jsonl"), outcome: "bad", earliestSaveTurn: 2, level: "prompt", note: "named the wrong file" },
+				{ session: join(fixtures, "linear.jsonl"), outcome: "good" },
+				{ session: join(fixtures, "fork.jsonl"), outcome: "bad", earliestSaveTurn: 9, level: "process" },
+				{ session: join(fixtures, "missing.jsonl"), outcome: "mixed" },
+			]),
+		);
+		const result = run(["labels", file, fixtures, "--limit", "2"]);
+		expect(result.code).toBe(1);
+		expect(result.stdout).toMatch(/session-labels\.json: 4 labels \(good 1, bad 2, mixed 1\), 2 problems$/m);
+		expect(result.stdout).toMatch(/^step 4 done when at least 20 are labeled and every bad one has earliestSaveTurn and level: not met \(4 of 20\)$/m);
+		expect(result.stdout).toMatch(/fork\.jsonl: earliestSaveTurn 9 is past the last turn \(\d\)$/m);
+		expect(result.stdout).toMatch(/missing\.jsonl: not found under the given directories$/m);
+		expect(result.stdout).toMatch(/^none +2 +0 +1 +1$/m);
+		expect(result.stdout).toMatch(/^prompt +1 +1 +0 +0$/m);
+		expect(result.stdout).toMatch(/^17 sessions under the given directories: 3 labeled, 14 not$/m);
+		expect(result.stdout).toMatch(/^unlabeled, by rank:\n.*\n-+.*\n.*\.jsonl\n.*\.jsonl\n$/m);
+		expect(result.stdout).toMatch(/^unlabeled, by cost:$/m);
+		const alone = run(["labels", file]);
+		expect(alone.code).toBe(0);
+		expect(alone.stdout).toMatch(/, 0 problems$/m);
+		expect(alone.stdout).not.toMatch(/unlabeled/);
+		const json = JSON.parse(run(["labels", file, fixtures, "--json"]).stdout);
+		expect(json.report).toMatchObject({ count: 4, done: false, incomplete: [] });
+		expect(json.sessions).toBe(17);
+		expect(json.unlabeled).toBe(14);
+		expect(json.byRank).toHaveLength(10);
+		expect(json.byCost[0].cost).toBeGreaterThanOrEqual(json.byCost[1].cost);
+		expect(run(["labels", join(dir, "nope.json")]).stderr).toMatch(/no such path/);
 	});
 
 	it("sanitize writes a sibling file by default and honors --out", () => {

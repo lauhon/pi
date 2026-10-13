@@ -90,6 +90,8 @@ tools/session-analyzer/
   src/inventory.ts             request point -> Segment[] (context by source)
   src/observables.ts           turn -> Observables; Session -> SessionSummary
   src/rank.ts                  SessionSummary -> bad-signal score, for the labeling pass
+  src/labels.ts                the step 4 worksheet (evidence, turns in excerpt) and the labels file check
+  src/model.ts                 canonical model ids: one model, one row
   src/sanitize.ts              session -> same-size copy with text bodies replaced
   src/report.ts                JSON out, terminal tables
   src/cli.ts                   `analyze <subcommand>`
@@ -410,6 +412,30 @@ follow-up session fixing this one, correction turns), not by feel. `level` is on
 "Why this shape", or `unknown`. Target: the 30 to 50 most recent sessions, every bad one labeled.
 This file is also the validation set for any model-based check that is proposed later.
 
+Tooling (2026-10-13, `labels.ts`):
+
+- `label <file>` prints the worksheet for one session: a header; an evidence line with the
+  turns that have rewinds, corrections, interrupts, provider errors, error runs and questions,
+  how the session ended (answered, a question left open, interrupted, a provider error, a tool
+  call with no answer after it, a user message with no answer) and the three costliest turns;
+  the next session in the same directory with its first message, since a follow-up that fixes
+  this one is outcome evidence; then one block per turn with the request and the final answer
+  in excerpt, the `summary` findings, and the record to fill. `session` in the record is the
+  path as given on the command line.
+- `labels <json> [<dir>...]` checks the file: a record needs `session` and an `outcome`; a bad
+  one also `earliestSaveTurn` (a turn number as `summary` prints them) and `level`; an unknown
+  key or a session labeled twice is a problem; with the session directories given, a turn past
+  the session's end or a session not under them are too. It prints the labels by level and
+  outcome (where they cluster is what step 5 reads), the step 4 "done when", and with
+  directories the unlabeled sessions by rank and by cost. Exit code 1 on problems.
+- `level` keys: `prompt`, `instructions`, `model`, `structure`, `process`, `tooling`, `habit`,
+  the rows of the table in "Why this shape" in their order, plus `unknown`.
+- Procedure: `labels reports/session-labels.json ./sessions ~/.pi/pi-sub-runs` for what is
+  left, `label <file>` for one session, fill the record, append it, run `labels` again. Start
+  with the sessions the rank and summary runs of 2026-10-12 named: by cost the $187, $84, $81,
+  $71 and $62 September sessions, the $109 and $90 July sessions, the audit's $71.50 session,
+  the $52 and $23 August sessions; by rank the `anticheat-fix` sub-run.
+
 ## Deferred: model-based checks
 
 Not before step 5. Listed so the hook design is not lost. Ranked by expected lever.
@@ -463,7 +489,7 @@ does badly and a browser does well. It reads the JSON contract above, so the UI 
 | 1 | `load.ts`, `cli.ts` with `list <dir>` and `inspect <file>`; dependency and config changes; fixture builder and first fixtures; conformance test against pi's own projection | `npm run analyze -- inspect <file>` prints one row per request point with turn, model, context tokens from `usage`, tool call count. Open questions Q1 to Q5 answered in this spec. Done 2026-10-11 except the real-file run. |
 | 2 | `inventory.ts`; `inventory <file> [--turn N]` and `inventory <dir>` | For any session: "what filled the window at turn N" and for a directory: average share by source. First surprises written to the Decisions or a new "Findings" section. Done 2026-10-11 on fixtures. |
 | 3 | `observables.ts`, `rank.ts`; `summary <file>`, `summary <dir>`, `rank <dir>` | Per-turn table has the observables as columns. Directory summary reproduces the August audit's numbers for its period within rounding. Code done 2026-10-11; the reproduction run is pending (see "Observables"). |
-| 4 | `reports/session-labels.json` | At least 20 sessions labeled, every bad one with `earliestSaveTurn` and `level`. |
+| 4 | `reports/session-labels.json` | At least 20 sessions labeled, every bad one with `earliestSaveTurn` and `level`; `labels` checks exactly this. Worksheet and check done 2026-10-13; the labeling is pending. |
 | 5 | A "Decisions" entry in this spec naming the branch taken | Labels cluster read; the cheap fix applied, or the rule heatmap started, or the live checks justified with the replay numbers. |
 | 6 | Live adapter extension reading `ctx.sessionManager` and `context`; `/ablate`; web view last | Widget shows step 3 counts live; `/ablate` opens a branch and prints the observable diff. |
 
