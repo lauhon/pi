@@ -26,6 +26,7 @@ import {
 	type SessionMessageEntry,
 	type ThinkingLevelChangeEntry,
 } from "@earendil-works/pi-coding-agent";
+import { canonicalModel } from "./model.ts";
 import type {
 	AbandonedBranch,
 	CompactionInfo,
@@ -303,7 +304,7 @@ function buildRequestPoints(
 			assistantEntryId: entry.id,
 			timestamp: entry.timestamp,
 			provider: message.provider ?? "",
-			model: message.model ?? "",
+			model: canonicalModel(message.model ?? ""),
 			...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
 			usage: requestUsage(message),
 			stopReason: message.stopReason ?? "",
