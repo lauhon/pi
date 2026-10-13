@@ -145,7 +145,7 @@ interface RequestPoint {
   assistantEntryId: string;
   timestamp: string;
   provider: string;
-  model: string;
+  model: string;               // canonical id (model.ts): claude-opus-5-5 and claude-opus-5.5 are one model
   thinkingLevel?: string;      // from the message, else the last thinking_level_change before it
   usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number; contextTokens: number };
   stopReason: string;
@@ -227,6 +227,9 @@ Surprises so far, from the source and the fixtures; the real-file run will add t
   absolute top sessions grew; a few sessions per week still carry most of the spend.
 - X8 "Failed commands" was 75% of all tool errors after Aug 13 (463 of 616) and includes
   failing test runs, which are the point of running tests; split since 2026-10-11.
+- X9 One model, two ids: Anthropic spells the version with hyphens (`claude-opus-5-5`),
+  GitHub Copilot with a dot (`claude-opus-5.5`), and a dated snapshot adds a suffix. The
+  October table had Opus 5.5 and Fable 5.1 as two rows each; merged since 2026-10-13.
 
 ## Observables (step 3)
 
@@ -347,9 +350,25 @@ times, and the turn ended 31 times. After (`--since 2026-08-13`: 378 sessions, 1
 $1,243.80), 135 missing-path errors: 82 guesses, 36 enumerations, 10 turn ends. Per request the
 errors fell seven-fold (5.7 to 0.84 per 100); among continued turns, enumerating rose from 12%
 to 29%. The model mix changed completely in the same window (GPT-5.6 Sol 90% of cost before,
-Claude Opus 5 and 5.5 77% after), so the before/after cannot attribute the drop to the rule;
-the per-model table (`byModel`) holds the model fixed, and GPT-5.6 has 2,556 requests after
-Aug 13 for that comparison.
+Claude Opus 5 and 5.5 77% after), so the plain before/after cannot attribute the drop to the
+rule. The per-model table holds the model fixed (run 2026-10-13, `--since 2026-08-13`: 387
+sessions, 16,940 requests, $1,296.58; the two spellings of each Claude id added up by hand,
+the analyzer merges them since that run):
+
+| model, after Aug 13 | requests | missing path per 100 | guess | enumerate | stop | errors per 100 |
+| --- | --- | --- | --- | --- | --- | --- |
+| gpt-5.6-sol | 1,060 | 0.8 | 2/8 | 5/8 | 1/8 | 4.5 |
+| claude-opus-5 | 6,181 | 0.3 | 17/19 | 2/19 | 0/19 | 2.5 |
+| claude-opus-5.5 | 5,378 | 1.0 | 34/52 | 16/52 | 2/52 | 3.6 |
+| claude-fable-5.1 | 1,006 | 0.9 | 8/9 | 1/9 | 0/9 | 3.3 |
+
+Sol, the model of the before period, went from 5.7 missing-path errors per 100 (the whole
+before population, 90% Sol by cost; the exact-snapshot command above prints the Sol-only row
+now, that run is still owed) to 0.8, and after one it enumerates 5 times in 8 instead of 6 in
+80. For Sol the rule did what it says. The Claude models hit a missing path a third as often
+as Sol did before, and when they do they guess another path 65% to 89% of the time: low
+relevance, low compliance. Step 4 should read the 19 Opus 5 cases before the rule is reworded
+for Claude; a guessed sibling path that exists is a cheap recovery, not a failure.
 
 Still open: five sessions from March 2026 record zero cost for every request (the 738-request one
 among them), so cost was not recorded by the pi version of that time; cost totals that include
@@ -359,6 +378,10 @@ Per model: `byModel` in the session and directory summaries attributes requests,
 missing-path errors and their follow-ups, failed commands, failing test runs, errored and
 interrupted requests and long responses to the model of each request, so a before/after
 comparison of a rule can hold the model fixed. The directory summary prints it as a table.
+Request points carry the canonical model id (`model.ts`): Anthropic's hyphenated or dated
+spelling of a Claude id (`claude-opus-5-5`, `claude-sonnet-4-5-20250929`) becomes Copilot's
+dotted one (`claude-opus-5.5`, `claude-sonnet-4.5`), so one model is one row and `--model`
+matches both spellings.
 
 `rank.ts` scores a session for the labeling pass: a plain sum of `correction_turn`, `rewind`,
 `error_run` (turns with 3 or more consecutive errors), `repeated_identical_call` and `aborted`,

@@ -309,6 +309,22 @@ describe("modelStats", () => {
 		expect(modelStats(load("linear"))).toEqual([expect.objectContaining({ model: "gpt-5.6-terra", requests: 3, toolErrors: 0 })]);
 	});
 
+	it("counts a model's provider spellings as one row", () => {
+		const b = new SessionBuilder({ id: "m" });
+		b.system();
+		b.user("Go");
+		b.assistant({ text: "Hi", provider: "anthropic", model: "claude-opus-5-5" });
+		b.assistant({ text: "Hi", provider: "github-copilot", model: "claude-opus-5.5" });
+		b.assistant({ text: "Hi", provider: "anthropic", model: "claude-sonnet-4-5-20250929" });
+		const session = parseSession(b.toJsonl(), "m.jsonl");
+		expect(session.requestPoints.map((rp) => rp.model)).toEqual(["claude-opus-5.5", "claude-opus-5.5", "claude-sonnet-4.5"]);
+		expect(modelStats(session).map((row) => [row.model, row.requests])).toEqual([
+			["claude-opus-5.5", 2],
+			["claude-sonnet-4.5", 1],
+		]);
+		expect(sessionSummary(session).modelMix.map((row) => row.model)).toEqual(["claude-opus-5.5", "claude-sonnet-4.5"]);
+	});
+
 	it("merges rows across sessions by model", () => {
 		const merged = mergeModelStats([modelStats(load("modelChange")), modelStats(load("linear")), modelStats(load("toolErrors"))]);
 		expect(merged.map((row) => [row.model, row.requests])).toEqual([

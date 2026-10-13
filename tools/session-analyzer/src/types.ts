@@ -50,6 +50,7 @@ export interface RequestPoint {
 	assistantEntryId: string;
 	timestamp: string;
 	provider: string;
+	/** Canonical id: a provider's hyphenated or dated spelling of a Claude id is merged into the dotted one (model.ts). */
 	model: string;
 	thinkingLevel?: string;
 	usage: RequestUsage;

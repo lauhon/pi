@@ -36,7 +36,8 @@ const USAGE = `usage: npm run analyze -- <subcommand> [args] [--json]
   summary <dir>...             directory totals in the shape of the August audit
   rank <dir>...                sessions by bad-signal score, highest first
 
-options: --json  --model <substring>  --exclude <path substring>  --limit <n>
+options: --json  --model <substring of the id; claude-opus-5-5 is claude-opus-5.5>
+         --exclude <path substring>  --limit <n>
          --until <iso>  each session as it was at that time (the file truncated there)
          --since <iso>  only requests at or after that time
 `;
