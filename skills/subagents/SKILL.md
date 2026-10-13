@@ -75,6 +75,41 @@ Write **self-contained task prompts** — the child has zero context. Include:
 concrete goal, relevant file paths, constraints, and the expected output shape.
 For non-trivial tasks write the prompt to a temp file and use `-f`.
 
+### Open with a role
+
+Start every prompt that needs judgment (writing, review, design, analysis)
+with one or two sentences that cast the child as a specific person:
+
+> You are a **[role]** with experience in **[the domain that matters here]**.
+> You know **[the one insight that should drive their choices]**.
+> You are trying to **[outcome, for whom]**.
+
+The role sets defaults for every call the prompt doesn't cover, so pick the
+expertise that matches the hard part of the task. The "you know" line carries
+the judgment you want copied. Name the audience and the outcome, not only the
+activity. Skip flattery ("world-class", "10x"), because it adds nothing the model
+can act on. Constraints and facts still go below the role, since a persona is
+no substitute for them. Purely mechanical tasks (run this script, list these
+files) don't need a role.
+
+Weak opening (activity only):
+
+> Rewrite brief: make the Try Outs report readable for the agency.
+
+Strong opening (role, insight, outcome):
+
+> You are a technical writer who has spent years turning internal
+> investigations into letters for external partner teams. You know developers
+> get defensive when another company points at their code, so you lead with what
+> already works, separate what was observed from what was inferred, and ask
+> instead of accuse. You are rewriting a report so that developers at a game
+> agency, who have never heard of us, understand on first read what we found in
+> their game and what they could check, and feel helped rather than blamed.
+
+For reviewers, name the reviewer you want, for example: "You are a senior
+Postgres engineer who has been paged for lock contention before." A generic
+"review this" gets you a generic review.
+
 `--cwd` must not be `~/.pi/agent` (or any directory inside it): with that cwd
 pi resolves `-e` extension imports against the agent dir's own `node_modules`,
 which lacks `@earendil-works/pi-coding-agent`, so every extension — including

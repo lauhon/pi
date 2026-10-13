@@ -74,6 +74,7 @@ Write a build brief to `/tmp/showme/{topic}-{yyyymmdd}/brief.md`:
 - the frame and form you chose, in one line each
 - the sections in order: each with its asserting title, its form (stat card, table, quadrant, steps, `<details>`...), and the exact text and numbers it carries
 - what the accent color marks
+- an opening role line for the builder: think about which kind of person would explain this subject well to this reader, and cast the builder as them (see "Open with a role" in the subagents skill)
 
 The brief carries all content. The builder decides layout, never content: it doesn't add, cut or reword facts.
 
