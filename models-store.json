@@ -809,7 +809,7 @@
         "type": "chat"
       }
     ],
-    "checkedAt": 1791894036623,
+    "checkedAt": 1792049011027,
     "lastModified": 1791455575000,
     "etag": "W/\"aeb01130ecfe86c27a3a141af60eea43\""
   },
@@ -1475,6 +1475,49 @@
         },
         "contextWindow": 1000000,
         "maxTokens": 64000,
+        "headers": {
+          "User-Agent": "GitHubCopilotChat/0.35.0",
+          "Editor-Version": "vscode/1.107.0",
+          "Editor-Plugin-Version": "copilot-chat/0.35.0",
+          "Copilot-Integration-Id": "vscode-chat"
+        },
+        "compat": {
+          "supportsStrictMode": true,
+          "supportsStore": false,
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false
+        },
+        "inputLimits": {
+          "images": {
+            "resize": {
+              "maxWidth": 2000,
+              "maxHeight": 2000,
+              "maxBytes": 4718592,
+              "jpegQuality": 80
+            }
+          }
+        },
+        "type": "chat"
+      },
+      {
+        "id": "gemini-4-argon",
+        "name": "Gemini 4 Argon",
+        "api": "openai-completions",
+        "provider": "github-copilot",
+        "baseUrl": "https://api.individual.githubcopilot.com",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 2,
+          "output": 10,
+          "cacheRead": 0.1,
+          "cacheWrite": 0
+        },
+        "contextWindow": 1048576,
+        "maxTokens": 65536,
         "headers": {
           "User-Agent": "GitHubCopilotChat/0.35.0",
           "Editor-Version": "vscode/1.107.0",
@@ -2567,8 +2610,8 @@
         "type": "chat"
       }
     ],
-    "checkedAt": 1791894038214,
-    "lastModified": 1791455597000,
-    "etag": "W/\"896d7b376ecab2be20930ae443b3a78c\""
+    "checkedAt": 1792049010703,
+    "lastModified": 1791973199000,
+    "etag": "W/\"16d7abbfc796b4b1658fd871716d2b5a\""
   }
 }
