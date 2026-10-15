@@ -105,7 +105,7 @@ Continue other work while it runs. When it finishes, read `$S out showme-build`,
 
 **Licence.** Preserve the brief's wording and facts. You decide spacing, wrapping, grouping on the page and geometry within the stated relationships. If the brief contradicts itself (a diagram edge against its own prose, a count against its own list), apply the fix the brief's prose supports and flag each one in your reply. Never add, cut or reword a claim, change a recommendation, or resolve an uncertainty the brief leaves open; quote those and stop.
 
-Write a single self-contained HTML file: all CSS and assets inline, no runtime network requests, no build step, no npm, no framework.
+Write a single self-contained HTML file: all CSS and assets inline, no runtime network requests, no build step, no npm, no framework. One exception: a Red Bull page (`cosmos` skill) may link the Cosmos stylesheet and font CSS from `rbds-static.redbull.com`, exactly as that skill shows. Don't download or embed the Bull fonts, and keep the hex fallback on every `var(--cosmos-*)` so the page still reads offline.
 
 Cost hierarchy, cheapest first: **pure HTML/CSS for quantities and comparisons** (div-width bars, grid waffles, quadrants, stat cards, `<details>`) → **inline SVG for custom geometry** (slopegraphs, connectors, trees, causal loops, annotation layers). Keep meaningful text in the markup, add `aria-label` to CSS-only charts, and give every diagram a text equivalent that states its relationships, not just its topic.
 
