@@ -504,9 +504,12 @@ export function transition(
 		// A run already finished on the first tick was finished before this session
 		// started looking (pi keeps the same session id across a restart, so old
 		// children stay "ours" forever). Linger is for finishes we actually watched.
-		if (firstTick && prev === undefined) {
-			finishedAt = undefined;
-		} else if (finishedAt === undefined || (prev?.lastState !== undefined && isActive(prev.lastState))) {
+		// Only start the clock on an observed transition: an undefined finishedAt on a
+		// run that was already inactive last tick means "finished before we looked",
+		// and must stay undefined on every later tick, not just the first.
+		if (prev === undefined) {
+			finishedAt = firstTick ? undefined : now;
+		} else if (prev.lastState === undefined || isActive(prev.lastState)) {
 			finishedAt = now;
 		}
 	} else {
