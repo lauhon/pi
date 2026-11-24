@@ -3,7 +3,7 @@
  * sub-run links and verdicts. Everything is derived from session files plus two small files
  * under $PI_ATTENTION_DIR (verdicts.jsonl, steer/). No model calls.
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { assistantToolCalls, isAssistantEntry, isToolResultEntry, isUserEntry } from "./load.ts";
@@ -289,6 +289,8 @@ export function subRunInfo(sessionPath: string): { name: string; parentId: strin
 // ── verdicts ───────────────────────────────────────────────────────────────
 
 export type Verdict = "useful" | "noise";
+/** "none" withdraws the previous verdict (Undo). */
+export type VerdictInput = Verdict | "none";
 
 export function verdictsFile(dir = attentionDir()): string {
 	return join(dir, "verdicts.jsonl");
@@ -301,7 +303,9 @@ export function readVerdicts(dir = attentionDir()): Map<string, { verdict: Verdi
 		if (!line.trim()) continue;
 		try {
 			const v = JSON.parse(line) as { catchKey?: unknown; verdict?: unknown; at?: unknown };
-			if (typeof v.catchKey === "string" && (v.verdict === "useful" || v.verdict === "noise")) out.set(v.catchKey, { verdict: v.verdict, at: str(v.at) });
+			if (typeof v.catchKey !== "string") continue;
+			if (v.verdict === "useful" || v.verdict === "noise") out.set(v.catchKey, { verdict: v.verdict, at: str(v.at) });
+			else if (v.verdict === "none") out.delete(v.catchKey);
 		} catch {
 			// a partial line from a crash
 		}
@@ -309,7 +313,69 @@ export function readVerdicts(dir = attentionDir()): Map<string, { verdict: Verdi
 	return out;
 }
 
-export function appendVerdict(catchKeyValue: string, verdict: Verdict, dir = attentionDir(), now = Date.now()): void {
+export function appendVerdict(catchKeyValue: string, verdict: VerdictInput, dir = attentionDir(), now = Date.now()): void {
 	mkdirSync(dir, { recursive: true });
 	appendFileSync(verdictsFile(dir), `${JSON.stringify({ catchKey: catchKeyValue, verdict, at: new Date(now).toISOString() })}\n`);
+}
+
+// ── saved to memory ────────────────────────────────────────────────────────
+
+export interface Saved {
+	itemId: string;
+	at: string;
+}
+
+export function savedFile(dir = attentionDir()): string {
+	return join(dir, "saved.jsonl");
+}
+
+/** catchKey -> the work-memory item it was saved as; the last line for a key wins. */
+export function readSaved(dir = attentionDir()): Map<string, Saved> {
+	const out = new Map<string, Saved>();
+	if (!existsSync(savedFile(dir))) return out;
+	for (const line of readFileSync(savedFile(dir), "utf8").split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			const v = JSON.parse(line) as { catchKey?: unknown; itemId?: unknown; at?: unknown };
+			if (typeof v.catchKey === "string" && typeof v.itemId === "string") out.set(v.catchKey, { itemId: v.itemId, at: str(v.at) });
+		} catch {
+			// a partial line from a crash
+		}
+	}
+	return out;
+}
+
+export function appendSaved(key: string, itemId: string, dir = attentionDir(), now = Date.now()): void {
+	mkdirSync(dir, { recursive: true });
+	appendFileSync(savedFile(dir), `${JSON.stringify({ catchKey: key, itemId, at: new Date(now).toISOString() })}\n`);
+}
+
+export function defaultMemoryDraft(project: string, decision: string): { title: string; status: string } {
+	return { title: `Assumption (${project}): ${decision}`.slice(0, 200), status: "assumption to review" };
+}
+
+// ── notified keys ──────────────────────────────────────────────────────────
+
+const NOTIFIED_KEEP = 2000;
+
+export function notifiedFile(dir = attentionDir()): string {
+	return join(dir, "notified.json");
+}
+
+/** Catch keys already handled by the notifier; survives a server restart so nothing is sent twice. */
+export function readNotified(dir = attentionDir()): Set<string> {
+	try {
+		const v = JSON.parse(readFileSync(notifiedFile(dir), "utf8")) as { keys?: unknown };
+		return new Set(Array.isArray(v.keys) ? v.keys.filter((k): k is string => typeof k === "string") : []);
+	} catch {
+		return new Set();
+	}
+}
+
+export function writeNotified(keys: Iterable<string>, dir = attentionDir()): void {
+	mkdirSync(dir, { recursive: true });
+	const file = notifiedFile(dir);
+	const tmp = `${file}.${process.pid}.tmp`;
+	writeFileSync(tmp, JSON.stringify({ keys: [...keys].slice(-NOTIFIED_KEEP) }));
+	renameSync(tmp, file);
 }

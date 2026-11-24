@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionBuilder } from "../fixtures/build.ts";
-import { focusedTitle, matchFocused, parseTitle, summarize, writeSubInbox } from "./attention-index.ts";
+import { focusedTitle, matchFocused, parseSteerId, parseTitle, steerId, summarize, writeSubInbox } from "./attention-index.ts";
+import { createNotifier } from "./attention-notify.ts";
+import { startInbox } from "../../../extensions/attention/inbox.ts";
 import { clearCache, startServer, type Cmux, type RunningServer } from "./serve.ts";
 
 const assume = { kind: "schema", decision: "add a nullable column", alternatives: ["new table"], basis: "small" };
@@ -202,7 +204,8 @@ describe("POST security", () => {
 		expect(await no({ ...good, host: "evil.example" })).toBe(403);
 		expect(await http("GET", "/api/attention", { headers: { host: "evil.example" } }).then((r) => r.status)).toBe(403);
 		expect(await http("PUT", "/api/steer", { headers: good }).then((r) => r.status)).toBe(405);
-		expect(readdirSync(root)).not.toContain("attention");
+		// only the notifier's own bookkeeping may exist; no rejected POST wrote anything
+		expect((existsSync(adir) ? readdirSync(adir) : []).filter((f) => f !== "notified.json")).toEqual([]);
 	});
 
 	it("413 over 16 KB; 404 for unknown session; 400 for bad fields", async () => {
@@ -246,12 +249,171 @@ describe("POST actions", () => {
 		expect((await http("POST", "/api/verdict", { headers: good, body: JSON.stringify({ catchKey: key, verdict: "bogus" }) })).status).toBe(400);
 		expect(JSON.parse(readFileSync(join(adir, "verdicts.jsonl"), "utf8").trim())).toMatchObject({ catchKey: key, verdict: "useful" });
 		expect((await get()).catches[0].verdict).toBe("useful");
+		expect((await http("POST", "/api/verdict", { headers: good, body: JSON.stringify({ catchKey: key, verdict: "none" }) })).status).toBe(200);
+		expect((await get()).catches[0].verdict).toBeNull();
+		await http("POST", "/api/verdict", { headers: good, body: JSON.stringify({ catchKey: key, verdict: "useful" }) });
 		const m = await http("POST", "/api/memory", { headers: good, body: JSON.stringify({ catchKey: key }) });
 		expect(m.status).toBe(200);
 		const item = JSON.parse(readFileSync(join(root, "mem", "items.jsonl"), "utf8").trim());
 		expect(item.title).toContain("add a nullable column");
 		expect(item.cwd).toBe("/work/gls");
 		expect(item.links).toContain(join(sessions, "a.jsonl"));
+	});
+});
+
+const later = (id: string, name: string, kind = "schema") => {
+	const b = new SessionBuilder({ id, cwd: "/work/gls", startedAt: new Date(Date.now() + 5000).toISOString() });
+	b.system();
+	b.sessionInfo(name);
+	b.user("go");
+	b.toolTurn("assumption", { ...assume, kind }, "Noted");
+	return b;
+};
+const focusTree = (title: string) => ({ windows: [{ active: true, workspaces: [{ selected: true, panes: [{ focused: true, surfaces: [{ selected: true, title }] }] }] }] });
+
+describe("decisions", () => {
+	it("tiers scope/schema on working sessions first, unfocused before focused, oldest first, repeats collapsed; handled drop out", async () => {
+		const mk = (id: string, name: string, startedMin: number, calls: { kind: string; decision: string }[], working: boolean) => {
+			const b = new SessionBuilder({ id, cwd: "/work/gls", startedAt: new Date(Date.now() - startedMin * 60_000).toISOString() });
+			b.system();
+			b.sessionInfo(name);
+			b.user("go");
+			b.assistant({ toolCalls: calls.map((c) => ({ name: "assumption", args: { ...assume, ...c } })) });
+			if (!working) b.assistant({ text: "done" });
+			else b.toolTurn("bash", {}, "r");
+			return b;
+		};
+		write(join(sessions, "a.jsonl"), mk("old-scope", "a", 50, [{ kind: "scope", decision: "A" }], true));
+		write(join(sessions, "b.jsonl"), mk("new-scope", "b", 10, [{ kind: "scope", decision: "B1" }, { kind: "schema", decision: "B2" }], true));
+		write(join(sessions, "c.jsonl"), mk("focused-scope", "c", 90, [{ kind: "scope", decision: "C" }], true));
+		write(join(sessions, "d.jsonl"), mk("waiting", "d", 5, [{ kind: "other", decision: "D" }], false));
+		write(join(sessions, "e.jsonl"), mk("idle", "e", 600, [{ kind: "scope", decision: "E" }], false));
+		tree = focusTree("π - c - gls");
+		const { get, good } = await boot();
+		const body = await get();
+		const text = (keys: string[]) => keys.map((k) => body.catches.find((c: { key: string }) => c.key === k).decision);
+		expect(body.decisions.map((d: { keys: string[]; tier: number }) => [d.tier, text(d.keys)])).toEqual([
+			[1, ["A"]],
+			[1, ["B1", "B2"]],
+			[1, ["C"]],
+			[2, ["D"]],
+		]);
+		expect(body.catches.find((c: { decision: string }) => c.decision === "E").actionable).toBe(false);
+		const first = body.catches.find((c: { decision: string }) => c.decision === "A").key;
+		await http("POST", "/api/verdict", { headers: good, body: JSON.stringify({ catchKey: first, verdict: "noise" }) });
+		expect((await get()).decisions).toHaveLength(3);
+	});
+});
+
+describe("notifications", () => {
+	it("one per new catch from an unfocused, non-idle session; nothing when focus is unknown", async () => {
+		write(join(sessions, "old.jsonl"), mainSession("old", "old", "/work/gls"));
+		tree = null;
+		await boot();
+		await new Promise((r) => setTimeout(r, 100));
+		write(join(sessions, "new.jsonl"), later("new", "elsewhere"));
+		await new Promise((r) => setTimeout(r, 1800));
+		expect(notes).toEqual([]);
+		expect(JSON.parse(readFileSync(join(adir, "notified.json"), "utf8")).keys.length).toBeGreaterThan(1);
+	});
+
+	it("rate limits per session, combines repeats, and persists keys across restarts", async () => {
+		const sent: { title: string; body: string }[] = [];
+		const dir = join(root, "n");
+		const open = () => createNotifier({ dir, windowMs: 120, send: async (title, body) => void sent.push({ title, body }) });
+		let n = open();
+		const item = (key: string, sessionId = "s1") => ({ key, sessionId, project: "gls", decision: `d-${key}` });
+		n.queue([item("k1")]);
+		n.queue([item("k2"), item("k3")]);
+		n.queue([item("k4", "s2")]);
+		await new Promise((r) => setTimeout(r, 40));
+		expect(sent.map((s) => s.body)).toEqual(["d-k1", "d-k4"]);
+		await new Promise((r) => setTimeout(r, 200));
+		expect(sent.map((s) => [s.title, s.body])).toEqual([
+			["gls: assumption", "d-k1"],
+			["gls: assumption", "d-k4"],
+			["gls: 2 assumptions", "d-k2 (+1 more)"],
+		]);
+		n.close();
+		n = open();
+		expect(["k1", "k2", "k3", "k4"].every((k) => n.has(k))).toBe(true);
+		expect(n.has("k5")).toBe(false);
+		n.close();
+	});
+
+	it("drops a queued catch that was handled before the window ended", async () => {
+		const sent: string[] = [];
+		const handled = new Set<string>();
+		const n = createNotifier({ dir: join(root, "n2"), windowMs: 80, send: async (_t, b) => void sent.push(b), stillOpen: (k) => !handled.has(k) });
+		const item = (key: string) => ({ key, sessionId: "s", project: "p", decision: key });
+		n.queue([item("a")]);
+		n.queue([item("b")]);
+		handled.add("b");
+		await new Promise((r) => setTimeout(r, 200));
+		expect(sent).toEqual(["a"]);
+		n.close();
+	});
+});
+
+describe("steer status", () => {
+	it("returns an id; reports pending, sent and rejected from the inbox file suffix (extension contract)", async () => {
+		write(join(sessions, "a.jsonl"), mainSession("main-1", "reset", "/work/gls"));
+		const { good } = await boot();
+		const status = async (id: string) => http("GET", `/api/steer/status?id=${id}`).then((r) => ({ code: r.status, ...JSON.parse(r.text) }));
+		const post = (text: string) => http("POST", "/api/steer", { headers: good, body: JSON.stringify({ sessionId: "main-1", text }) }).then((r) => JSON.parse(r.text));
+		const first = await post("hello");
+		expect(first.inbox).toBe("none");
+		expect(await status(first.id)).toMatchObject({ code: 200, state: "pending" });
+		const dir = join(adir, "steer", "main-1");
+		const second = await post("big");
+		expect((await post("again")).inbox).toBe("open");
+		const big = readdirSync(dir).sort()[1];
+		writeFileSync(join(dir, big), "x".repeat(70 * 1024));
+		const delivered: string[] = [];
+		const inbox = startInbox({ sendUserMessage: (t) => void delivered.push(t as string) }, { dir: adir, sessionId: "main-1", isIdle: () => true, every: () => () => {} });
+		await inbox.poll();
+		expect(delivered).toEqual(["[from attention view] hello", "[from attention view] again"]);
+		expect(await status(first.id)).toMatchObject({ code: 200, state: "sent" });
+		expect(await status(second.id)).toMatchObject({ code: 200, state: "rejected", reason: expect.stringContaining("too large") });
+	});
+
+	it("covers sub-run inbox files and rejects bad ids", async () => {
+		write(join(sessions, "a.jsonl"), mainSession("main-1", "reset", "/work/gls"));
+		const run = join(sessions, "run-x");
+		write(join(run, "session.jsonl"), mainSession("sub-1", "s", "/work/gls"));
+		writeFileSync(join(run, "parent"), "main-1");
+		const { good } = await boot();
+		const posted = JSON.parse((await http("POST", "/api/steer", { headers: good, body: JSON.stringify({ sessionId: "sub-1", text: "to sub" }) })).text);
+		const get = (id: string) => http("GET", `/api/steer/status?id=${encodeURIComponent(id)}`);
+		expect(JSON.parse((await get(posted.id)).text).state).toBe("pending");
+		renameSync(join(run, "inbox", "000001.md"), join(run, "inbox", "000001.md.sent"));
+		expect(JSON.parse((await get(posted.id)).text).state).toBe("sent");
+		expect((await get("%2e%2e")).status).toBe(400);
+		expect((await get("")).status).toBe(400);
+		expect((await get(steerId({ sessionId: "nobody", name: "000001.md" }))).status).toBe(404);
+		expect((await get(steerId({ sessionId: "sub-1", name: "000009.md" }))).status).toBe(404);
+		expect(parseSteerId(Buffer.from(JSON.stringify(["main-1", "../../x.md"])).toString("base64url"))).toBeNull();
+	});
+});
+
+describe("save to memory from a catch", () => {
+	it("appends saved.jsonl, shows Saved on the catch with the item id, creates no second item", async () => {
+		write(join(sessions, "a.jsonl"), mainSession("main-1", "reset", "/work/gls"));
+		const { good, get } = await boot();
+		const c0 = (await get()).catches[0];
+		expect(c0).toMatchObject({ saved: null, memoryDraft: { title: expect.stringContaining("add a nullable column"), status: "assumption to review" } });
+		const save = (o: object) => http("POST", "/api/memory", { headers: good, body: JSON.stringify({ catchKey: c0.key, ...o }) }).then((r) => JSON.parse(r.text));
+		const a = await save({ title: "My title", status: "check later" });
+		expect(a).toMatchObject({ ok: true, existing: false });
+		const b = await save({ title: "Other title" });
+		expect(b).toMatchObject({ itemId: a.itemId, existing: true, added: [] });
+		const lines = readFileSync(join(root, "mem", "items.jsonl"), "utf8").trim().split("\n");
+		expect(lines).toHaveLength(1);
+		expect(JSON.parse(lines[0])).toMatchObject({ id: a.itemId, title: "My title", status: "check later" });
+		const saved = readFileSync(join(adir, "saved.jsonl"), "utf8").trim().split("\n");
+		expect(saved).toHaveLength(1);
+		expect(JSON.parse(saved[0])).toMatchObject({ catchKey: c0.key, itemId: a.itemId });
+		expect((await get()).catches[0].saved).toMatchObject({ itemId: a.itemId });
 	});
 });
 

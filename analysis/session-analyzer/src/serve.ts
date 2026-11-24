@@ -20,8 +20,9 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { groupBySource, inventoryRequestPoint } from "./inventory.ts";
-import { appendVerdict, attentionDir, type Verdict } from "./attention.ts";
-import { buildAttention, focusedTitle, listSummaries, matchFocused, sessionRef, writeSteer, writeSubInbox, type Summary } from "./attention-index.ts";
+import { appendSaved, appendVerdict, attentionDir, catchKey, defaultMemoryDraft, readSaved, readVerdicts, statusFrom } from "./attention.ts";
+import { createNotifier, NOTIFY_WINDOW_MS } from "./attention-notify.ts";
+import { buildAttention, focusedTitle, listSummaries, matchFocused, parseSteerId, sessionRef, steerDir, steerId, steerStatus, writeSteer, writeSubInbox, type Summary } from "./attention-index.ts";
 import { loadSession } from "./load.ts";
 import { applyOps, loadItems, memoryRoot, saveItems } from "../../../extensions/work-memory/store.ts";
 import type { Session } from "./types.ts";
@@ -306,6 +307,8 @@ export interface ServeOptions {
 	attentionDir?: string;
 	/** Defaults to the `cmux` binary on PATH; null disables focus and notifications. */
 	cmux?: Cmux | null;
+	/** At most one notification per session per window; default 60 s. */
+	notifyWindowMs?: number;
 }
 
 const MAX_BODY = 16 * 1024;
@@ -357,7 +360,6 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 	const token = randomBytes(16).toString("hex");
 	// Public id of this server start; pages compare it to notice a restart and reload for the new token.
 	const boot = randomBytes(8).toString("hex");
-	const startedAt = Date.now();
 	const seen = new Set<string>();
 	let focusCache: { at: number; info: { known: boolean; title: string | null } } | undefined;
 	const clients = new Set<ServerResponse>();
@@ -389,19 +391,42 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 		return info;
 	};
 
-	/** One cmux notification per catch from a session that is not in focus; existing catches are marked seen first. */
+	const notifier = createNotifier({
+		dir: adir,
+		windowMs: options.notifyWindowMs ?? NOTIFY_WINDOW_MS,
+		send: async (title, body) => {
+			await cmux?.notify(title, body);
+		},
+		stillOpen: (key) => {
+			const v = readVerdicts(adir);
+			return !v.has(key) && !recent(24).some((s) => s.outcomes.some((o) => o.catchKey === key));
+		},
+	});
+
+	/**
+	 * Catches new since the last scan are marked (persisted) and, when cmux says which tab has focus,
+	 * notified if they are open on a non-idle session that is not in focus. The first scan only marks.
+	 * With focus unknown nothing is sent: the page's unread count is the fallback.
+	 */
 	const scan = async (first = false): Promise<void> => {
 		const all = recent(24);
-		const fresh = all.flatMap((s) => s.catches.map((c) => ({ s, c, key: `${c.sessionId}:${c.entryId}` }))).filter((x) => !seen.has(x.key));
-		for (const x of fresh) seen.add(x.key);
-		if (first || !cmux || fresh.length === 0) return;
+		const fresh = all.flatMap((s) => s.catches.map((c) => ({ s, c, key: catchKey(c) }))).filter((x) => !notifier.has(x.key));
+		if (fresh.length === 0) return;
+		if (first || !cmux) return notifier.mark(fresh.map((x) => x.key));
 		const focus = await focusInfo();
-		if (!focus.known) return;
+		if (!focus.known) return notifier.mark(fresh.map((x) => x.key));
 		const focused = matchFocused(focus.title, all);
-		for (const x of fresh) {
-			if (x.s.id === focused || Date.parse(x.c.timestamp) < startedAt) continue;
-			await cmux.notify(`${x.s.project}: assumption`, x.c.decision).catch(() => {});
-		}
+		const verdicts = readVerdicts(adir);
+		const now = Date.now();
+		const send = fresh.filter(
+			(x) =>
+				x.s.id !== focused &&
+				!verdicts.has(x.key) &&
+				!x.s.outcomes.some((o) => o.catchKey === x.key) &&
+				statusFrom(x.s.shape, x.s.mtime, now, x.s.lastAssistantMs) !== "idle",
+		);
+		notifier.mark(fresh.filter((x) => !send.includes(x)).map((x) => x.key));
+		notifier.queue(send.map((x) => ({ key: x.key, sessionId: x.s.id, project: x.s.project, decision: x.c.decision })));
 	};
 	for (const dir of dirs) {
 		try {
@@ -478,15 +503,18 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 				if (!text) throw new ApiError(400, "bad text");
 				const target = known.find((s) => s.id === sessionId);
 				if (!target) throw new ApiError(404, "unknown session");
+				const dir = steerDir(target, adir);
+				const inbox = existsSync(dir) ? "open" : "none";
 				const file = target.sub ? writeSubInbox(target.sub.runDir, text) : writeSteer(sessionId, text, adir);
-				return { ok: true, file };
+				// "none": no pi has opened this session's inbox yet, so the file may wait a long time.
+				return { ok: true, id: steerId({ sessionId, name: basename(file) }), inbox };
 			}
 			case "/api/verdict": {
 				const key = field(body, "catchKey", 300)!;
 				const verdict = field(body, "verdict", 10)!;
-				if (verdict !== "useful" && verdict !== "noise") throw new ApiError(400, "bad verdict");
+				if (verdict !== "useful" && verdict !== "noise" && verdict !== "none") throw new ApiError(400, "bad verdict");
 				if (!known.some((s) => s.catches.some((c) => `${c.sessionId}:${c.entryId}` === key))) throw new ApiError(404, "unknown catch");
-				appendVerdict(key, verdict as Verdict, adir);
+				appendVerdict(key, verdict, adir);
 				return { ok: true };
 			}
 			case "/api/memory": {
@@ -495,19 +523,22 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 				const status = field(body, "status", 500, false)?.trim();
 				let hit: { s: Summary; decision: string } | undefined;
 				for (const s of known) {
-					const c = s.catches.find((x) => `${x.sessionId}:${x.entryId}` === key);
+					const c = s.catches.find((x) => catchKey(x) === key);
 					if (c) hit = { s, decision: c.decision };
 				}
 				if (!hit) throw new ApiError(404, "unknown catch");
 				const root = memoryRoot();
-				const result = applyOps(
-					loadItems(root),
-					[{ title: title || `Assumption (${hit.s.project}): ${hit.decision}`.slice(0, 200), status: status || "assumption to review" }],
-					Date.now(),
-					{ cwd: hit.s.cwd || undefined, link: hit.s.path },
-				);
+				const existing = readSaved(adir).get(key);
+				if (existing && loadItems(root).some((i) => i.id === existing.itemId)) return { ok: true, added: [], itemId: existing.itemId, existing: true };
+				const draft = defaultMemoryDraft(hit.s.project, hit.decision);
+				const result = applyOps(loadItems(root), [{ title: title || draft.title, status: status || draft.status }], Date.now(), {
+					cwd: hit.s.cwd || undefined,
+					link: hit.s.path,
+				});
 				saveItems(root, result.items);
-				return { ok: true, added: result.added };
+				const itemId = result.added[0] ?? result.updated[0];
+				if (itemId) appendSaved(key, itemId, adir);
+				return { ok: true, added: result.added, itemId, existing: false };
 			}
 			default:
 				throw new ApiError(404, "not found");
@@ -541,6 +572,15 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 					const all = recent(hours);
 					const focus = await focusInfo();
 					return sendJson(res, 200, buildAttention(all, hours, matchFocused(focus.title, all), Date.now(), adir, focus.known));
+				}
+				case "/api/steer/status": {
+					const ref = parseSteerId(q.get("id") ?? "");
+					if (!ref) throw new ApiError(400, "bad id");
+					const target = recent(LOOKUP_HOURS).find((s) => s.id === ref.sessionId);
+					if (!target) throw new ApiError(404, "unknown session");
+					const status = steerStatus(steerDir(target, adir), ref.name);
+					if (!status) throw new ApiError(404, "unknown steer");
+					return sendJson(res, 200, status);
 				}
 				case "/api/sessions": {
 					const hours = Number(q.get("hours") ?? 24);
@@ -585,6 +625,7 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 				close: () =>
 					new Promise<void>((done) => {
 						clearInterval(keepAlive);
+						notifier.close();
 						for (const timer of timers.values()) clearTimeout(timer);
 						for (const watcher of watchers) watcher.close();
 						for (const client of clients) client.end();

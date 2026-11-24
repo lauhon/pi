@@ -59,6 +59,13 @@ a { color:var(--blue); }
 .newlabel { color:var(--amber); font-weight:600; font-size:14px; border:1px solid var(--amber); border-radius:4px; padding:0 5px; margin-right:8px; vertical-align:2px; }
 @media (prefers-reduced-motion: reduce) { .drow.fresh { animation:none; } * { scroll-behavior:auto !important; transition:none !important; } }
 
+.drow .act { white-space:nowrap; }
+.drow.handled { border-left-color:var(--line); background:none; }
+.drow.handled .head { font-size:18px; font-weight:400; color:var(--dim); }
+.hist { margin:18px 0 28px; }
+.hist > button { margin-bottom:10px; }
+.tab { color:var(--dim); } .state { font-size:16px; }
+
 /* Inspect panel */
 #panel { position:fixed; top:49px; right:0; bottom:0; width:min(720px, calc(100vw - 460px)); background:var(--bg); border-left:1px solid var(--line); display:none; flex-direction:column; z-index:10; font-size:14px; box-shadow:-8px 0 24px #0008; }
 #panel.open { display:flex; }
@@ -66,6 +73,19 @@ a { color:var(--blue); }
 #panelbar b { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:18px; }
 #panelbody { flex:1; overflow-y:auto; padding:12px 16px 24px; }
 #panelbody h3 { margin:16px 0 6px; font-size:14px; font-weight:600; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; }
+.dec { font-size:22px; font-weight:600; line-height:1.3; margin:4px 0 8px; }
+.sect { border-top:1px solid var(--line); margin-top:14px; padding-top:10px; }
+.sect h3 { margin-top:0 !important; }
+.claim { color:var(--dim); font-size:14px; }
+.row2 { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; }
+textarea, input[type=text] { width:100%; background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; font-size:14px; }
+textarea { min-height:90px; resize:vertical; }
+label.f { display:block; color:var(--dim); font-size:14px; margin:8px 0 2px; }
+.out { margin:6px 0 0; padding:4px 10px; border-left:2px solid var(--line); font-size:14px; color:var(--dim); }
+.out b { color:var(--fg); font-weight:600; }
+button.pri { border-color:var(--blue); color:var(--blue); }
+button.sel { border-color:var(--green); color:var(--green); }
+button:disabled { opacity:.5; cursor:default; }
 .nums { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; }
 .num { background:var(--panel); border-radius:8px; padding:6px 10px; }
 .num .v { font-size:20px; font-weight:700; } .num .k { color:var(--dim); font-size:14px; }
@@ -122,7 +142,8 @@ const STATUS = { working:"working", waiting:"waiting for you", idle:"idle" };
 const KIND = { scope:"Scope", schema:"DB schema", other:"Assumption" };
 const state = {
   att:null, okAt:0, failed:false, open:new Set(), earlier:false, moreDecisions:false,
-  ref:null, series:null, sel:null, detail:null, title:"",
+  ref:null, series:null, sel:null, detail:null, title:"", panel:null, history:false, shown:new Set(),
+  steers:JSON.parse(localStorage.getItem("attention.steers") || "{}"), steerState:{}, drafts:{}, msg:{},
   seen:new Set(JSON.parse(localStorage.getItem("attention.seen") || "[]")),
 };
 
@@ -137,8 +158,7 @@ async function post(url, body) {
 // ── seen / unread: stable catch key, kept in localStorage, set only by opening or marking ──
 function saveSeen() { localStorage.setItem("attention.seen", JSON.stringify([...state.seen].slice(-1000))); }
 function markSeen(keys) { for (const k of keys) state.seen.add(k); saveSeen(); renderHeader(); renderDecisions(); }
-const isOpen = c => !c.verdict && !state.att.outcomes.some(o => o.catchKey === c.key);
-const isNew = c => isOpen(c) && !state.seen.has(c.key);
+const isNew = c => c.actionable && !state.seen.has(c.key);
 
 async function refresh() {
   try {
@@ -222,40 +242,174 @@ function renderRail() {
 
 // ── decisions ──
 const DECISIONS_SHOWN = 5;
+const catchByKey = k => state.att.catches.find(c => c.key === k);
+const allSessions = () => state.att.sessions.concat(...state.att.sessions.map(x => x.subs));
+const sessionOf = c => allSessions().find(x => x.ref === c.sessionRef);
+
+function steerLine(key) {
+  const st = state.steerState[key];
+  if (!st) return "";
+  if (st.state === "sent") return `<span class="green">Steer delivered</span>`;
+  if (st.state === "rejected") return `<span class="red">Steer rejected${st.reason ? ": " + esc(st.reason) : ""}</span>`;
+  if (st.state === "error") return `<span class="amber">Steer state unknown</span>`;
+  return `<span>Steer pending${st.ageMs > 30000 ? " (nothing has picked it up yet)" : ""}</span>`;
+}
+
+function decisionRow(c, extra, handled) {
+  const d = document.createElement("div");
+  d.className = "drow" + (handled ? " handled" : "") + (!handled && isNew(c) && !state.shown.has(c.key) ? " fresh" : "");
+  state.shown.add(c.key);
+  d.tabIndex = 0;
+  const label = handled ? handledLabel(c) : (KIND[c.kind] || "Assumption");
+  const more = extra > 0 ? ` · +${extra} more from this turn` : "";
+  const steer = steerLine(c.key);
+  d.innerHTML = `<div class="body"><div class="head">${!handled && isNew(c) ? '<span class="newlabel">New</span>' : ""}${esc(clip(c.decision, 110))}</div>
+    <div class="why">${esc(clip(c.basis || (c.alternatives.length ? "Instead: " + c.alternatives.join(" · ") : ""), 100))}</div>
+    <div class="meta"><span class="${handled ? "" : "tag"}">${label}</span> · ${esc(c.project)}${c.name ? " · " + esc(c.name) : ""} · ${ago(Date.parse(c.timestamp))} ago${more}${steer ? " · " + steer : ""}</div></div>
+    ${handled ? "" : '<button class="act pri" data-a="steer">Steer</button>'}`;
+  d.onclick = ev => openCatch(c.key, ev.target.dataset && ev.target.dataset.a === "steer");
+  d.onkeydown = ev => { if (ev.key === "Enter" && ev.target === d) openCatch(c.key); };
+  return d;
+}
+
+function handledLabel(c) {
+  if (c.verdict) return c.verdict === "useful" ? "Useful" : "Noise";
+  if (state.att.outcomes.some(o => o.catchKey === c.key)) return "Corrected later";
+  if (c.saved) return "Saved to memory";
+  return "Session idle";
+}
+
 function renderDecisions() {
   const a = state.att, el = $("dlist");
   if (!a) return;
-  const open = a.catches.filter(isOpen);
-  $("dcount").textContent = open.length ? `${open.length} open` : "";
+  const keep = el.parentNode.scrollTop;
+  const list = a.decisions.map(d => ({ c: catchByKey(d.keys[0]), extra: d.keys.length - 1 })).filter(x => x.c);
+  $("dcount").textContent = list.length ? `${list.length} open` : "";
   el.innerHTML = "";
-  if (!open.length) { el.innerHTML = '<div id="none">No decisions need you. Sessions are still listed at left.</div>'; return; }
-  const shown = state.moreDecisions ? open : open.slice(0, DECISIONS_SHOWN);
-  for (const c of shown) {
-    const d = document.createElement("div");
-    d.className = "drow"; d.tabIndex = 0;
-    const fresh = isNew(c);
-    d.innerHTML = `<div class="body"><div class="head">${fresh ? '<span class="newlabel">New</span>' : ""}${esc(clip(c.decision, 110))}</div>
-      <div class="why">${esc(clip(c.basis || (c.alternatives.length ? "Instead: " + c.alternatives.join(" · ") : ""), 100))}</div>
-      <div class="meta"><span class="tag">${KIND[c.kind] || "Assumption"}</span> · ${esc(c.project)}${c.name ? " · " + esc(c.name) : ""} · ${ago(Date.parse(c.timestamp))} ago</div></div>
-      <button>Open</button>`;
-    const go = () => { markSeen([c.key]); const s = a.sessions.concat(...a.sessions.map(x => x.subs)).find(x => x.ref === c.sessionRef); if (s) openContext(s, c.requestIndex); };
-    d.onclick = go;
-    d.onkeydown = ev => { if (ev.key === "Enter") go(); };
-    el.appendChild(d);
-  }
-  if (open.length > DECISIONS_SHOWN) {
+  if (!list.length) el.innerHTML = '<div id="none">No decisions need you. Sessions are still listed at left.</div>';
+  for (const x of (state.moreDecisions ? list : list.slice(0, DECISIONS_SHOWN))) el.appendChild(decisionRow(x.c, x.extra, false));
+  if (list.length > DECISIONS_SHOWN) {
     const b = document.createElement("button");
-    b.textContent = state.moreDecisions ? "Fewer" : `More (${open.length - DECISIONS_SHOWN})`;
+    b.textContent = state.moreDecisions ? "Fewer" : `More (${list.length - DECISIONS_SHOWN})`;
     b.onclick = () => { state.moreDecisions = !state.moreDecisions; renderDecisions(); };
     el.appendChild(b);
   }
+  const open = new Set(a.decisions.flatMap(d => d.keys));
+  const done = a.catches.filter(c => !open.has(c.key));
+  if (done.length) {
+    const h = document.createElement("div"); h.className = "hist";
+    h.innerHTML = `<button class="link">${state.history ? "▾" : "▸"} Handled (${done.length})</button>`;
+    h.firstChild.onclick = () => { state.history = !state.history; renderDecisions(); };
+    if (state.history) for (const c of done.slice(0, 30)) h.appendChild(decisionRow(c, 0, true));
+    el.appendChild(h);
+  }
+  el.parentNode.scrollTop = keep;
+  if (state.panel && state.panel.kind === "catch") renderCatchPanel(false);
 }
 
-// ── Inspect panel: context view ──
+// ── steer delivery state ──
+function saveSteers() {
+  const cutoff = Date.now() - 86400000, keep = {};
+  for (const [k, v] of Object.entries(state.steers)) if (v.at > cutoff) keep[k] = v;
+  state.steers = keep; localStorage.setItem("attention.steers", JSON.stringify(keep));
+}
+async function pollSteers() {
+  let changed = false;
+  for (const [key, v] of Object.entries(state.steers)) {
+    const st = state.steerState[key];
+    if (st && (st.state === "sent" || st.state === "rejected")) continue;
+    try { state.steerState[key] = await api("/api/steer/status?id=" + encodeURIComponent(v.id)); }
+    catch (e) { state.steerState[key] = { state:"error" }; }
+    changed = true;
+  }
+  if (changed && state.att) renderDecisions();
+}
+setInterval(() => pollSteers().catch(() => {}), 2500);
+
+// ── Inspect panel ──
 function openPanel(title) { $("paneltitle").textContent = title; $("panel").classList.add("open"); }
-function closePanel() { $("panel").classList.remove("open"); state.ref = null; if (state.att) renderRail(); }
+function closePanel() { $("panel").classList.remove("open"); state.ref = null; state.panel = null; if (state.att) renderRail(); }
+
+// Catch detail: the full claim, its source, linked outcomes, and the actions with drafts.
+function openCatch(key, steer) {
+  const c = catchByKey(key);
+  if (!c) return;
+  markSeen([key]);
+  state.ref = null; state.panel = { kind:"catch", key };
+  if (steer && state.drafts[key] === undefined) state.drafts[key] = `About your assumption "${clip(c.decision, 110)}": `;
+  openPanel(`${KIND[c.kind] || "Assumption"} · ${c.project}${c.name ? " · " + c.name : ""}`);
+  renderCatchPanel(true);
+  if (steer) { const t = $("steertext"); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }
+}
+
+function outcomeText(o) {
+  if (o.type === "esc") return `<b>Esc</b>, then you wrote: ${esc(o.correction || "")}`;
+  if (o.type === "steer") return `<b>Steered</b>: ${esc(o.correction || "")}`;
+  return `<b>Rewind</b>: dropped ${o.requests} request${o.requests === 1 ? "" : "s"}, ${fmtK(o.droppedContextTokens || 0)} context tokens`;
+}
+
+function renderCatchPanel(force) {
+  const p = state.panel, c = p && catchByKey(p.key), body = $("panelbody");
+  if (!c) { body.innerHTML = '<p class="dim">This catch is no longer in the last 24 hours.</p>'; return; }
+  if (!force && /^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName) && body.contains(document.activeElement)) return;
+  const s = sessionOf(c);
+  const idle = s && s.status === "idle";
+  const outs = state.att.outcomes.filter(o => o.catchKey === c.key);
+  const alts = c.alternatives.length ? `<div class="claim">Other readings: ${c.alternatives.map(esc).join(" · ")}</div>` : "";
+  const sav = c.saving ? `<div class="out">Observed work between this catch and your ${c.saving.via === "esc" ? "Esc correction" : c.saving.via === "rewind" ? "rewind" : "steer"}: ${fmtCost(c.saving.cost)} and ${fmtK(c.saving.tokens)} tokens over ${c.saving.requests} request${c.saving.requests === 1 ? "" : "s"}. Estimate: input, output and cache-write tokens; not money saved.</div>` : "";
+  const steerSt = steerLine(c.key);
+  const draft = c.memoryDraft, md = state.drafts["mem:" + c.key] || {};
+  const verdict = c.verdict ? `<span class="${c.verdict === "useful" ? "green" : "dim"}">Marked ${c.verdict}.</span> <button data-a="undo">Undo</button>` : "";
+  const saved = c.saved ? `<div><span class="green">Saved</span> to work memory as <code>${esc(c.saved.itemId)}</code>.</div>` : `
+    <label class="f">Title</label><input type="text" id="memtitle" maxlength="200" value="${esc(md.title ?? draft.title)}">
+    <label class="f">Status</label><input type="text" id="memstatus" maxlength="500" value="${esc(md.status ?? draft.status)}">
+    <div class="row2"><button data-a="save">Save to memory</button></div>`;
+  $("panelbody").innerHTML = `
+    <div class="dec">${esc(c.decision)}</div>${alts}
+    ${c.basis ? `<div class="claim">Agent's claim, not verified: ${esc(c.basis)}</div>` : ""}
+    <div class="claim" style="margin-top:6px">Request ${c.requestIndex + 1} · turn ${c.turnIndex} · ${new Date(c.timestamp).toLocaleString()} · ${esc(KIND[c.kind] || "")}</div>
+    <div class="row2"><button data-a="context">Open context at this request</button></div>
+    ${outs.length || sav ? `<div class="sect"><h3>What happened next</h3>${outs.map(o => `<div class="out">${outcomeText(o)} · ${ago(Date.parse(o.timestamp))} ago</div>`).join("")}${sav}</div>` : ""}
+    <div class="sect"><h3>Steer</h3>
+      <div class="claim">To: ${s ? esc(s.project) + (s.name ? " · " + esc(s.name) : "") : "session not listed"} · tab <span class="tab">π - ${esc(c.name || "")}${c.name ? " - " : ""}${esc(c.project)}</span></div>
+      ${idle ? `<div class="amber">This session looks idle (last reply ${s.lastAssistantMs ? ago(s.lastAssistantMs) + " ago" : "unknown"}). A steer may wait until pi runs it.</div>` : ""}
+      <textarea id="steertext" placeholder="Message to this session. Nothing is sent until you press Send.">${esc(state.drafts[c.key] || "")}</textarea>
+      <div class="row2"><button class="pri" data-a="send">${idle ? "Send anyway" : "Send"}</button><span class="state">${steerSt}</span><span class="red">${esc(state.msg[c.key] || "")}</span></div></div>
+    <div class="sect"><h3>Memory</h3>${saved}</div>
+    <div class="sect"><h3>Verdict</h3><div class="row2"><button data-a="useful" class="${c.verdict === "useful" ? "sel" : ""}">Useful</button><button data-a="noise" class="${c.verdict === "noise" ? "sel" : ""}">Noise</button>${verdict}</div></div>`;
+  const ta = $("steertext");
+  if (ta) ta.oninput = () => { state.drafts[c.key] = ta.value; };
+  const mt = $("memtitle"), ms = $("memstatus");
+  if (mt) mt.oninput = () => { state.drafts["mem:" + c.key] = { title: mt.value, status: ms.value }; };
+  if (ms) ms.oninput = mt.oninput;
+  body.querySelectorAll("button[data-a]").forEach(b => b.onclick = () => catchAction(c, b.dataset.a));
+}
+
+async function catchAction(c, a) {
+  state.msg[c.key] = "";
+  try {
+    if (a === "context") { const s = sessionOf(c); if (s) openContext(s, c.requestIndex); return; }
+    if (a === "send") {
+      const text = (state.drafts[c.key] || "").trim();
+      if (!text) { state.msg[c.key] = "Write a message first."; return renderCatchPanel(true); }
+      const r = await post("/api/steer", { sessionId: c.sessionId, text });
+      state.steers[c.key] = { id: r.id, at: Date.now() }; state.steerState[c.key] = { state:"pending", ageMs:0 }; saveSteers();
+      delete state.drafts[c.key];
+    } else if (a === "save") {
+      const t = $("memtitle").value, st = $("memstatus").value;
+      await post("/api/memory", { catchKey: c.key, title: t, status: st });
+      delete state.drafts["mem:" + c.key];
+    } else {
+      const v = a === "undo" ? "none" : a;
+      await post("/api/verdict", { catchKey: c.key, verdict: v });
+    }
+    await refresh();
+  } catch (e) { state.msg[c.key] = "Failed: " + e.message; }
+  renderCatchPanel(true);
+}
 
 function openContext(s, at) {
+  state.panel = { kind:"context" };
   state.ref = s.ref; state.sel = at === undefined ? null : at; state.series = null; state.detail = null;
   openPanel(s.project + (s.name ? " · " + s.name : ""));
   $("panelbody").innerHTML = `<div class="nums" id="nums"></div>

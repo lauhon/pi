@@ -3,11 +3,12 @@
  * the HTTP; this module does the work, so tests can call it without a socket.
  */
 import { createHash } from "node:crypto";
-import { linkSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	attentionDir,
 	catchKey,
+	defaultMemoryDraft,
 	extractCatches,
 	extractOutcomes,
 	lastAssistantMs,
@@ -15,7 +16,9 @@ import {
 	linkOutcomes,
 	nameOf,
 	projectOf,
+	readSaved,
 	readVerdicts,
+	type Saved,
 	savingFor,
 	statusFrom,
 	STEER_PREFIX,
@@ -160,7 +163,21 @@ export interface AttentionPayload {
 	focusKnown: boolean;
 	focused: string | null;
 	sessions: SessionView[];
-	catches: (Omit<Catch, "sessionPath"> & { key: string; sessionRef: string; project: string; name: string | null; verdict: "useful" | "noise" | null; saving: Saving | null })[];
+	catches: (Omit<Catch, "sessionPath"> & {
+		key: string;
+		sessionRef: string;
+		project: string;
+		name: string | null;
+		verdict: "useful" | "noise" | null;
+		saving: Saving | null;
+		/** No verdict, no linked outcome, and the session is not idle: a decision can still change the run. */
+		actionable: boolean;
+		saved: Saved | null;
+		/** What "Save to memory" would write; the page lets the user edit it first. */
+		memoryDraft: { title: string; status: string };
+	})[];
+	/** Open decisions in display order; `keys` has more than one entry when repeats from one turn are collapsed. */
+	decisions: { keys: string[]; tier: 1 | 2 }[];
 	outcomes: (Omit<Outcome, "sessionPath"> & { sessionRef: string; project: string; name: string | null })[];
 	stats: { catches: number; useful: number; noise: number; esc: number; rewind: number; steer: number };
 }
@@ -191,6 +208,7 @@ export function buildAttention(
 	for (const v of sessions) v.subs.sort(byRecent);
 
 	const verdicts = readVerdicts(dir);
+	const saved = readSaved(dir);
 	const catches: AttentionPayload["catches"] = [];
 	const outcomes: AttentionPayload["outcomes"] = [];
 	for (const s of all) {
@@ -198,12 +216,22 @@ export function buildAttention(
 		const ref = sessionRef(s.path);
 		for (const { sessionPath: _p, ...c } of s.catches) {
 			if (Date.parse(c.timestamp) < cutoff) continue;
-			catches.push({ ...c, key: catchKey(c), sessionRef: ref, ...label, verdict: verdicts.get(catchKey(c))?.verdict ?? null });
+			const key = catchKey(c);
+			catches.push({
+				...c,
+				key,
+				sessionRef: ref,
+				...label,
+				verdict: verdicts.get(key)?.verdict ?? null,
+				actionable: false,
+				saved: saved.get(key) ?? null,
+				memoryDraft: defaultMemoryDraft(s.project, c.decision),
+			});
 		}
 		for (const { sessionPath: _p, ...o } of s.outcomes) if (Date.parse(o.timestamp) >= cutoff) outcomes.push({ ...o, sessionRef: ref, ...label });
 	}
 	const listed = sessions.filter((v) => v.mtime >= cutoff || v.subs.some((x) => x.mtime >= cutoff));
-	rankSessions(listed, catches, all);
+	const decisions = rankSessions(listed, catches, all, focused);
 	const newest = (a: { timestamp: string }, b: { timestamp: string }) => Date.parse(b.timestamp) - Date.parse(a.timestamp);
 	catches.sort(newest);
 	outcomes.sort(newest);
@@ -214,6 +242,7 @@ export function buildAttention(
 		focused,
 		sessions: listed,
 		catches,
+		decisions,
 		outcomes,
 		stats: {
 			catches: catches.length,
@@ -229,15 +258,18 @@ export function buildAttention(
 /**
  * Rail order: waiting for you, then working with an open catch, then other working, then idle;
  * within a group by last update. Only the first RAIL_LIMIT sessions stay in the rail.
+ * Also marks which catches are actionable and returns the decision list: scope/schema catches on a
+ * working session first, then other actionable ones; unfocused sessions before the focused one, then
+ * oldest first. Catches from one turn collapse into one decision.
  */
-function rankSessions(sessions: SessionView[], catches: AttentionPayload["catches"], all: Summary[]): void {
-	const handledOutcome = new Set<string>();
-	for (const s of all) for (const o of s.outcomes) if (o.catchKey) handledOutcome.add(o.catchKey);
+function rankSessions(sessions: SessionView[], catches: AttentionPayload["catches"], all: Summary[], focused: string | null): AttentionPayload["decisions"] {
+	const answered = new Set<string>();
+	for (const s of all) for (const o of s.outcomes) if (o.catchKey) answered.add(o.catchKey);
+	const status = new Map<string, Status>();
+	for (const v of sessions) for (const x of [v, ...v.subs]) status.set(x.id, x.status);
+	for (const c of catches) c.actionable = !c.verdict && !answered.has(c.key) && (status.get(c.sessionId) ?? "idle") !== "idle";
 	const open = new Map<string, number>();
-	for (const c of catches) {
-		if (c.verdict || handledOutcome.has(c.key)) continue;
-		open.set(c.sessionId, (open.get(c.sessionId) ?? 0) + 1);
-	}
+	for (const c of catches) if (c.actionable) open.set(c.sessionId, (open.get(c.sessionId) ?? 0) + 1);
 	for (const v of sessions) {
 		v.actionable = [v, ...v.subs].reduce((n, x) => n + (open.get(x.id) ?? 0), 0);
 		v.group = v.status === "waiting" ? "waiting" : v.status === "working" ? (v.actionable > 0 ? "working-catch" : "working") : "idle";
@@ -246,6 +278,21 @@ function rankSessions(sessions: SessionView[], catches: AttentionPayload["catche
 	// Orphan sub-runs get their own labelled group and never take a rail slot.
 	let slot = 0;
 	for (const v of sessions) v.earlier = !v.orphan && slot++ >= RAIL_LIMIT;
+
+	const turns = new Map<string, AttentionPayload["catches"]>();
+	for (const c of catches) {
+		if (!c.actionable) continue;
+		const k = `${c.sessionId}#${c.turnIndex}`;
+		turns.set(k, [...(turns.get(k) ?? []), c]);
+	}
+	const entries = [...turns.values()].map((group) => {
+		group.sort((a, b) => a.requestIndex - b.requestIndex || a.entryId.localeCompare(b.entryId));
+		const head = group[0];
+		const tier: 1 | 2 = status.get(head.sessionId) === "working" && group.some((c) => c.kind === "scope" || c.kind === "schema") ? 1 : 2;
+		return { keys: group.map((c) => c.key), tier, unfocused: head.sessionId !== focused, at: Date.parse(head.timestamp) };
+	});
+	entries.sort((a, b) => a.tier - b.tier || Number(b.unfocused) - Number(a.unfocused) || a.at - b.at);
+	return entries.map(({ keys, tier }) => ({ keys, tier }));
 }
 
 // ── focus ──────────────────────────────────────────────────────────────────
@@ -345,4 +392,65 @@ export function writeSubInbox(runDir: string, text: string): string {
 		});
 		if (!taken && writeNew(join(inbox, name), `${STEER_PREFIX}${text}`)) return join(inbox, name);
 	}
+}
+
+// ── steer delivery state ───────────────────────────────────────────────────
+
+export interface SteerRef {
+	sessionId: string;
+	name: string;
+}
+
+const STEER_NAME = /^(\d{13}-\d{4}|\d{6})\.md$/;
+
+/** Opaque id the page keeps for a steer: which session and which inbox file. */
+export function steerId(ref: SteerRef): string {
+	return Buffer.from(JSON.stringify([ref.sessionId, ref.name])).toString("base64url");
+}
+
+export function parseSteerId(id: string): SteerRef | null {
+	if (id.length > 400 || !/^[A-Za-z0-9_-]+$/.test(id)) return null;
+	try {
+		const v: unknown = JSON.parse(Buffer.from(id, "base64url").toString("utf8"));
+		if (Array.isArray(v) && v.length === 2 && typeof v[0] === "string" && typeof v[1] === "string" && STEER_NAME.test(v[1])) return { sessionId: v[0], name: v[1] };
+	} catch {
+		// not ours
+	}
+	return null;
+}
+
+export interface SteerStatus {
+	state: "pending" | "sent" | "rejected";
+	reason?: string;
+	/** Pending only: ms since the file was written. */
+	ageMs?: number;
+}
+
+/**
+ * The inbox renames a delivered file to `<name>.sent`, a refused one to `<name>.rejected` (the
+ * attention extension adds `<name>.reason.txt`; the sub-run beacon renames the same way). The file
+ * still named `<name>` is waiting. Null when none of the three exists.
+ */
+export function steerStatus(inboxDir: string, name: string, now = Date.now()): SteerStatus | null {
+	const at = (suffix: string) => join(inboxDir, name + suffix);
+	if (existsSync(at(".sent"))) return { state: "sent" };
+	if (existsSync(at(".rejected"))) {
+		let reason: string | undefined;
+		try {
+			reason = readFileSync(at(".reason.txt"), "utf8").trim().slice(0, 300) || undefined;
+		} catch {
+			// the sub-run beacon writes no reason
+		}
+		return reason ? { state: "rejected", reason } : { state: "rejected" };
+	}
+	try {
+		return { state: "pending", ageMs: Math.max(0, now - statSync(at("")).mtimeMs) };
+	} catch {
+		return null;
+	}
+}
+
+/** Where a session's steer files live: the sub-run inbox, or `$PI_ATTENTION_DIR/steer/<id>`. */
+export function steerDir(target: Pick<Summary, "id" | "sub">, dir = attentionDir()): string {
+	return target.sub ? join(target.sub.runDir, "inbox") : join(dir, "steer", target.id);
 }

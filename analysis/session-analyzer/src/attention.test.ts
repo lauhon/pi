@@ -173,6 +173,9 @@ describe("verdicts and sub-runs", () => {
 		expect(v.get("s:e1")?.verdict).toBe("noise");
 		expect(v.get("s:e2")?.verdict).toBe("useful");
 		expect(readVerdicts(join(d, "none")).size).toBe(0);
+		appendVerdict("s:e2", "none", d, 4000);
+		expect(readVerdicts(d).has("s:e2")).toBe(false);
+		expect(readVerdicts(d).get("s:e1")?.verdict).toBe("noise");
 	});
 	it("reads the parent of a sub-run dir", () => {
 		const d = tmp();
