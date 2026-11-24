@@ -1,0 +1,5 @@
+{"id":"add-badge","title":"Add badge","status":"PR open, waiting on review","done":false,"cwd":"/repo","links":["TASK-1","https://example.com/pull/1","{{fixtures}}/linear.jsonl","{{fixtures}}/fork.jsonl","{{fixtures}}/gone.jsonl"],"created":"2026-08-01","updated":"2026-08-02"}
+{"id":"fix-retry","title":"Fix retry loop","status":"merged","done":true,"links":["{{fixtures}}/linear.jsonl","{{fixtures}}/../fixtures/compaction.jsonl"],"created":"2026-08-01","updated":"2026-08-03","keepUntil":"forever"}
+not json at all
+{"id":"no-done","title":"Missing the done field","status":"x","links":[],"created":"2026-08-01","updated":"2026-08-01"}
+{"id":"elsewhere","title":"Nothing local","status":"idle","done":false,"links":["/nowhere/a.jsonl"],"created":"2026-08-01","updated":"2026-08-01"}

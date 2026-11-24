@@ -1,0 +1,608 @@
+# Spec: session analyzer
+
+> Status: **Draft** · 2026-10-11 · Owner: @laurenz · follows up [reports/gpt-5.6-session-audit-2026-08-12.md](../../reports/gpt-5.6-session-audit-2026-08-12.md)
+>
+> Steps 1 to 3 were implemented on 2026-10-11 in a container that had the repo but no
+> `sessions/` directory and no `pi` binary. Every fact and answer marked "source" below was
+> checked against the installed package `@earendil-works/pi-coding-agent@1.1.0` (dist and
+> docs), not against real session files. The real-file check ran on 2026-11-24 on the
+> machine that has `sessions/` (1,005 files); see "Open questions".
+
+## Goal
+
+A tool that reads pi session files and answers two questions for any session, any turn:
+
+1. What filled the context window the model saw, by source and size.
+2. What the agent did in that turn, as countable observables.
+
+The August audit answered these once, by hand, for 40 sessions. Its "still pending" list says
+"re-run the audit after 20-30 new sessions". This tool makes the re-run a command. It also
+produces the data for three decisions that are open right now:
+
+- Root-cause bad sessions: the earliest turn where a different action would have saved the
+  session, and which level that action belongs to (prompt, instructions, model, session
+  structure, process, tooling, habit).
+- Design `AGENTS.md`, skills and prompts with evidence instead of memory: which rules are
+  followed, violated or never relevant.
+- Decide whether a live monitor or any model-based check is worth building at all.
+
+## Non-goals
+
+- No model calls until the labeling pass (step 4) is done and step 5 has decided. Measurement
+  comes before anything it would measure.
+- No live widget, extension, or `/command` before step 6.
+- No web UI. The output contract is JSON so any UI can read it later.
+- Not a token-saving optimization. `rtk.ts`, `strip-images-copilot.ts` and compaction settings
+  are that layer. This tool measures; it does not change requests.
+- Not a replacement for `subagents-monitor`. That one observes children; this one observes
+  context and turns.
+
+## Why this shape
+
+The live "efficiency monitor" idea is a hypothesis: quality is lost in ways only visible
+mid-session. The competing hypotheses sit at other levels and each has a cheaper fix:
+
+| Level | If the cause is here | The fix is |
+| --- | --- | --- |
+| Prompt | requests are underspecified or ambiguous | a template, or one guideline: ask when ambiguous |
+| Standing instructions | prose, unasked assumptions, unverified claims recur | `AGENTS.md` lines, `before_agent_start` guidelines |
+| Model and thinking | a weaker model picked to save premium requests | spend the budget on the main model |
+| Session structure | contradictions and stale context grow with length | shorter sessions, `/handoff`, subagents |
+| Process | endings are confident but unverified | tests in the loop, a done criterion in the prompt |
+| Deterministic tooling | constraints get violated | block in `tool_call`, don't flag afterwards |
+| Habit | you notice too late that you did not say what you meant | a two-minute pre-prompt checklist |
+
+Where the labels from step 4 cluster is where the solution sits. The analyzer is the instrument
+for that labeling and for measuring whatever fix follows. Decision rule for any proposed live
+check: when it fires, what do I do? If the answer is "rewind and rephrase", make rewinding
+cheaper. If it is "nothing, I just want to know", it is analysis and stays offline. Only a check
+whose firing changes the next action in the session earns a live model call.
+
+## Verified facts (2026-10-11)
+
+F1 to F8 were checked against the pi docs and source on `earendil-works/pi` `main`, not against a
+running pi. Rows marked "1.1.0" were re-checked on 2026-10-11 against the installed package. The
+re-check against real files in `sessions/` ran on 2026-11-24 (see "Open questions").
+
+| # | Fact | Consequence |
+| --- | --- | --- |
+| F1 | Session files are JSONL, version 3, one entry per line, each with `type`, `id`, `parentId`, `timestamp`. Entry types: `session` (header), `message`, `model_change`, `thinking_level_change`, `usage`, `compaction`, `context_edit`, `branch_summary`, `custom`, `custom_message`, `label`, `session_info`. 1.1.0: this is exactly the `SessionEntry` union in `session-manager.d.ts`. | Everything below is derivable from the file. No instrumentation needed for the offline layer. |
+| F2 | pi exports `SessionManager`, `buildContextEntries(entries, leafId, byId)`, `buildSessionProjection` (same, plus the source entry of every message), `buildSessionContext`, `sessionEntryToContextMessages`, `parseSessionEntries`, `migrateSessionEntries` and `getLatestCompactionEntry` from the package root. 1.1.0: `loadEntriesFromFile` is not exported from the root, and it appends a newline to a file whose last line has none. The leaf pi resumes a file at is the last entry in the file. | We do not re-implement tree walking or compaction rules. `load.ts` reads the file itself, feeds `parseSessionEntries` and `migrateSessionEntries`, and takes the context at a request point from `buildSessionProjection` with the leaf set to the parent of the assistant entry. Real files are never written. |
+| F3 | The system prompt is a `message` entry whose `message.role` is `system`, with `content`, `sections`, `toolsAdded[]` (name, description, parameters) and `toolsRemoved[]`. Later system messages patch `sections` by name (`null` removes one) and add or remove tools; a compaction stores a complete `systemMessage` checkpoint and the kept range drops the earlier system messages. 1.1.0 (`system-prompt.js`): the keys pi writes are `preamble`, `tools`, `rules`, `docs`, `addendum`, `project_context`, `skills`, `cwd`, plus any extension section by name. | Inventory replays every system message of a context in order (the rule of pi-ai `getCurrentSystemMessage`), so the system part is exact and tool descriptions are measurable one by one. The key set of older pi versions is read off real files by `inspect`. |
+| F4 | Assistant messages carry `provider`, `model`, `stopReason` and `usage` with `input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens`, `cost`. | Context size per request comes from `usage`, no tokenizer needed. Cache hit ratio per turn is `cacheRead / (input + cacheRead + cacheWrite)`. |
+| F5 | `compaction` entries carry `summary`, `firstKeptEntryId`, `tokensBefore`, optional `usage` and `systemMessage`. `branch_summary` carries `fromId` and `summary`. `context_edit` carries `targetId` and `replacement`. | Compaction count, size before, and summary length are direct. Forks are visible as entries sharing a `parentId`. Prunes are visible. |
+| F6 | `custom_message` entries carry `customType`, `content`, `display`, and are part of model context. `custom` entries are not. | Extension injections (for example `subagents-monitor` steer notices) are attributable by `customType`. |
+| F7 | This repository is `~/.pi/agent`. Interactive sessions live in `sessions/--<cwd-with-dashes>--/<timestamp>_<id>.jsonl` and are gitignored. Sub-run children (`skills/subagents/sub`) start pi with `--session ~/.pi/pi-sub-runs/<run>/session.jsonl` and write the parent's session id to `<run>/parent`, so they are not under `sessions/` at all. | The CLI takes one or more roots and walks them recursively, so `./sessions ~/.pi/pi-sub-runs` covers both populations the August audit counted (15 interactive, 25 sub-runs). Fixtures must be sanitized copies, never the originals. |
+| F8 | Live extension API: `turn_end` and `agent_before_settle` are boundary events carrying `context.llmMessages` (the exact request), `message`, `toolResults`, `outcome`; handlers may return `entries` (`custom`, `custom_message`, `context_edit`, `compaction`) and `continue: true`. `input` can `transform` or mark input `handled`. `ctx.modelRegistry.complete()` and `streamSimple()` make nested model calls. | Step 6 (live adapter) and the deferred model checks have their hooks. Nothing in steps 1-5 needs them. |
+| F9 | `@earendil-works/pi-coding-agent` latest on npm is 1.1.0, which is also `settings.json` `lastChangelogVersion`. Extensions import it at runtime through pi's own loader. `extensions/premium-usage.disabled/*.ts` still import the old `@mariozechner/pi-coding-agent` for types. | Pinned to `1.1.0` as a devDependency (exact). `pi --version` could not be run where step 1 was done; confirm the pin on the machine that runs pi. The old package stays until the parked extension drops it. |
+| F10 | The August audit parsed `model`, `usage`, tool-call, tool-error and `stopReason` fields locally, then reviewed 40 sessions in eight batches by hand. Its findings: a few sessions dominate cost (top 5 = 81%), only 2 compactions in 40 sessions, contexts up to 314k tokens, 200 tool errors of which 73 missing paths and 55 immediate identical retries, 52 responses over 2,000 characters. | Every one of those is an observable below. The first run of the analyzer should reproduce those numbers for the same period as its acceptance test. |
+| F11 | Node 22 runs `.ts` files directly (type stripping), and `npm run analyze` is `node analysis/session-analyzer/src/cli.ts`. 1.1.0: importing the package from a plain script works. | No extra runtime dependency. The analyzer uses erasable TypeScript only: `import type` for types, no enums, no parameter properties. |
+| F12 | 1.1.0 (`agent-session.js`): `/skill:name args` is expanded inside the user message to `<skill name="..." location="...">body</skill>` followed by the args. A model-initiated load is a `read` (or `bash`) of the `<location>` path listed in the `skills` section, which only carries name, description and location. | Two attribution rules cover skills: a tool result for a listed location, and a user message starting with `<skill name=`. |
+
+## Architecture
+
+```
+analysis/session-analyzer/
+  spec-session-analyzer.md     this file
+  src/types.ts                 the data contract below, plain shapes only
+  src/load.ts                  file -> Session (header, entries, active branch, request points)
+  src/inventory.ts             request point -> Segment[] (context by source)
+  src/observables.ts           turn -> Observables; Session -> SessionSummary
+  src/rank.ts                  SessionSummary -> bad-signal score, for the labeling pass
+  src/labels.ts                the step 4 worksheet (evidence, turns in excerpt) and the labels file check
+  src/memory.ts                the work-memory log (`~/.work-memory/items.jsonl`) -> items per session, cost per item
+  src/model.ts                 canonical model ids: one model, one row
+  src/sanitize.ts              session -> same-size copy with text bodies replaced
+  src/report.ts                JSON out, terminal tables
+  src/cli.ts                   `analyze <subcommand>`
+  fixtures/build.ts            fixture builder (synthetic JSONL with a chosen shape)
+  fixtures/shapes.ts           the named shapes the tests and the CLI demo use
+  fixtures/generate.ts         writes shapes to fixtures/*.jsonl; a test keeps them in sync
+  fixtures/                    synthetic sessions + sanitized real ones
+  *.test.ts                    collocated
+```
+
+Rules:
+
+- `load.ts` is the only module that imports pi's package. Everything after it takes plain data.
+  The live adapter in step 6 feeds the same functions from `ctx.sessionManager` and events.
+- Pure functions, no I/O below `load.ts` and `report.ts`.
+- One request point per assistant message on the active branch. The context for request point
+  `i` is `buildContextEntries(entries, leafId = parentId of the assistant entry, byId)`, converted
+  with `buildSessionContext`. Abandoned branches are reported separately as forks, never mixed
+  into the active timeline.
+- Sizes: character counts per segment, `usage` for the true total per request. Display segment
+  shares as fractions of the `usage` total. Never estimate tokens per segment with a tokenizer;
+  proportions are what the design work needs and chars are provider-neutral.
+- Run through root scripts: `npm run analyze -- <args>`. Add `analysis/**/*.ts` to `tsconfig.json`
+  `include` and `analysis/**/*.test.ts` to the vitest `include` list so CI covers it with the existing
+  `test.yml`.
+
+### Data contract
+
+```ts
+type SegmentSource =
+  | "system.preamble" | "system.tools" | "system.rules" | "system.docs" | "system.addendum"
+  | "system.project_context" | "system.skills" | "system.cwd" | "system.other"   // other: label = key
+  | "tool_description"            // one per tool in force, label = tool name
+  | "user" | "assistant.text" | "assistant.thinking" | "assistant.tool_call"
+  | "tool_result"                 // label = tool name, or skill:<name> for a skill file
+  | "custom_message"              // label = customType
+  | "bash_execution"              // `!command` runs, sent as user text
+  | "compaction_summary" | "branch_summary";
+
+interface Segment {
+  source: SegmentSource;
+  label?: string;        // tool name, customType, section key, skill name when derivable
+  entryId: string;
+  position: number;      // index in the request's message list
+  chars: number;
+  ageTurns: number;      // turns since the entry was added
+}
+
+// load.ts produces these; inventory.ts turns a RequestPoint into Segment[].
+interface RequestPoint {
+  index: number;
+  turnIndex: number;           // a turn starts at every user message on the active branch
+  assistantEntryId: string;
+  timestamp: string;
+  provider: string;
+  model: string;               // canonical id (model.ts): claude-opus-5-5 and claude-opus-5.5 are one model
+  thinkingLevel?: string;      // from the message, else the last thinking_level_change before it
+  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number; contextTokens: number };
+  stopReason: string;
+  textChars: number;           // visible text in the assistant message
+  thinkingChars: number;
+  toolCalls: { id: string; name: string; argsHash: string; path?: string; args: object }[];
+  toolResults: { id: string; name: string; entryId: string; chars: number; isError: boolean; text: string }[];
+  context: { entries: SessionEntry[]; messages: AgentMessage[]; sourceEntryIds: string[] };  // pi's projection
+}
+
+interface Finding {
+  kind: string;                      // see observables; later also model-based kinds
+  severity: "info" | "warn";
+  turnIndex: number;
+  evidence: string[];                // entry ids
+  message: string;                   // one line
+}
+```
+
+The same `Finding` shape is used later by any model-based check. The sinks (JSON, terminal,
+widget, `pi.appendEntry`) never need to know who produced a finding.
+
+## Context inventory (step 2)
+
+Per request point, group `Segment[]` by `source` and `label`, with chars, share of `usage` total,
+position and age. Per session, the same aggregated over all request points, plus the peak.
+Per directory, averages and the distribution.
+
+Attribution rules as implemented in `inventory.ts` (settled against pi 1.1.0 source, F3 and F12):
+
+- System: every system message in the context is replayed in order; each section in force is one
+  segment (`system.<key>` for the keys pi writes, `system.other` with the key as label for
+  extension sections, label `content` for free-form system text). `AGENTS.md` and the other
+  context files sit in `system.project_context`.
+- Tool descriptions: one segment per tool in force after the replay, label = tool name, chars =
+  description plus the JSON of the parameter schema. These are the segments most likely to
+  surprise.
+- Skills: the `skills` section lists name, description and location. A `read` of a listed
+  location (or a bash command naming it) makes that tool result `tool_result` with label
+  `skill:<name>`; a user message starting with `<skill name=` (the `/skill:` expansion) is
+  `user` with the same label.
+- Thinking: `assistant.thinking` from `thinking` blocks, whenever the provider persisted them.
+- `ageTurns` is the request's turn minus the turn in which the segment's entry was added; for a
+  compaction checkpoint and summary that is the compaction entry's turn.
+- Shares are chars over the request's total chars; `~tokens` is share × usage context tokens.
+
+Three things this layer shows without any attribution method:
+
+- Absence: a rule compacted away, a tool result truncated before the relevant line, a skill never
+  loaded, an `AGENTS.md` from a different cwd.
+- Duplicates and conflicts: the same instruction in `AGENTS.md`, a skill and the prompt.
+- Proportion and position: how much is tool descriptions and skills versus hand-written text, and
+  where each rule sits in the window.
+
+## Findings
+
+Surprises so far, from the source and the fixtures; the real-file run will add to this list.
+
+- X1 Tool descriptions dominate a small context: with pi's four default tools and this repo's
+  `AGENTS.md`, the fixtures put about half of the characters of a short request into
+  `tool_description`, ahead of `system.skills` and `system.project_context`. On real sessions
+  with `dd-pup-pi` and MCP tools loaded, the first thing to read off `inventory <dir>` is this
+  share, since nothing hand-written competes with it.
+- X2 A compaction written by a pi version that stored no `systemMessage` checkpoint leaves the
+  projection without any system message, although the live request had one (pi rebuilds the
+  prompt at runtime). The inventory under-reports the system part for such sessions; `inspect`
+  shows `compactions` with `hasSystemMessage` so they can be told apart.
+- X3 Sub-run children are a separate population under `~/.pi/pi-sub-runs`, so a directory
+  summary over `sessions/` alone misses 25 of the audit's 40 sessions. Pass both roots.
+- X4 A `custom_message` and a `bashExecution` do not start a turn: turn boundaries are user
+  messages only. A steer typed while the agent runs does start one, which is the intended
+  reading (a new instruction), but it splits one agent run across two turn rows.
+- X5 (real files, Aug 13 to Oct 11) The compaction setting took: 147 compactions, no request
+  above 252k, every large session peaking at 200k to 211k. Size moved from context to length:
+  the longest session has 1,606 requests at $187, more than the whole audit week.
+- X6 Polling repeats fell from 3.9 to 0.2 immediate identical repeats per 100 requests, and
+  missing-path errors from 5.7 to 0.84 per 100, across the model switch (see the rule cell).
+- X7 Cost concentration spread out (top session 15% of two months, top five 36%), while the
+  absolute top sessions grew; a few sessions per week still carry most of the spend.
+- X8 "Failed commands" was 75% of all tool errors after Aug 13 (463 of 616) and includes
+  failing test runs, which are the point of running tests; split since 2026-10-11.
+- X9 One model, two ids: Anthropic spells the version with hyphens (`claude-opus-5-5`),
+  GitHub Copilot with a dot (`claude-opus-5.5`), and a dated snapshot adds a suffix. The
+  October table had Opus 5.5 and Fable 5.1 as two rows each; merged since 2026-10-13.
+
+## Observables (step 3)
+
+All structural. No model calls. Per turn unless marked. A turn is the span from one user
+message to the next on the active branch; `observables.ts` keeps every cue list, pattern table
+and threshold in one place at the top of the file.
+
+| Kind | Definition | Source in file |
+| --- | --- | --- |
+| `asked_question` | assistant text ends the turn with a question and no tool call | assistant content, `stopReason` |
+| `tool_calls` | count by tool name | assistant `toolCall` blocks |
+| `files_read`, `files_edited` | distinct paths from `read`, `edit`, `write` arguments | tool call args |
+| `edit_churn` | same file edited more than once in a turn (+1 per repeat), or an edit whose old and new text swap an earlier edit's on that file (+1) | tool call args |
+| `tests_run` | bash command matching a test runner (`vitest`, `jest`, `pytest`, `npm test`, `go test`, `cargo test`); keep the list in one table | bash args |
+| `tool_error`, `error_run` | `isError` results by tool; the longest run of consecutive error results in the turn (`error_run` finding from 3); error texts equal to an earlier one in the session (`repeatedErrorText`); `bash`/`powershell` errors are `failedCommands`, except a failing test-runner command, which is `failedTestRuns` (the information the agent asked for, not a tool failure; the audit's "failed commands" is the sum) | tool results |
+| `missing_path_error` | error text matching no-such-file patterns | tool results (audit finding 3) |
+| `repeated_identical_call` | same tool and same `argsHash` (arguments with keys sorted) as an earlier call in the session; "immediate" when the previous tool call of the same turn was the identical one, so a user asking again is not a blind retry | tool calls (audit: 55 cases) |
+| `error_follow_up` | for each tool error, what the next request of the turn did: `identical` (same tool, same arguments), `sameTarget` (same tool, same path, changed arguments), `otherTarget` (same tool, another path or command: the path guessing of audit finding 3), `otherTool`, `none` (the agent stopped or asked); finding when identical or other-target follow-ups occur | tool calls and results |
+| `reread_after_compaction` | `read` of a path that was read before the latest compaction on the branch; it also counts as a `repeated_identical_call` when the arguments match | tool calls, compaction |
+| `stale_file_in_context` | at the turn's last request: paths with a successful `read` result still in pi's projection that an `edit` or `write` followed; a context edit that drops the result clears it | request context, tool calls |
+| `text_before_first_tool` | chars of assistant text preceding the first tool call | assistant content |
+| `narration_only` | turn with no tool call and no question | assistant content |
+| `long_response` | assistant messages whose visible text is over 2,000 and over 5,000 chars, counted per message | assistant content (audit metric) |
+| `correction_turn` (user) | user message of at most 300 chars opening with a cue from `CORRECTION_CUES` (no, not, don't, stop, wait, actually, I meant, that's not, wrong, undo, revert, instead, why did you, you didn't), after a turn with at least 3 tool calls, 1,000 chars of final text or a long response | user content |
+| `rewind` | abandoned branches forking from an entry of the turn (children of one `parentId` that are not on the active branch); `branch_summary` entries are counted separately so a rewind with a summary is one rewind | tree |
+| `aborted` | `stopReason` aborted or error; reported split as `interrupted` (aborted: the user stopped the agent) and `errored` (error: the provider failed), since the two mean different things for labeling | assistant |
+| `cache_hit_ratio` | `cacheRead / (input + cacheRead + cacheWrite)` per request; the turn reports its minimum and the number of drops of 50 points or more between adjacent requests (across turn boundaries too) | usage |
+| `model_change`, `thinking_change` | entries of those types in the turn; the session counts every entry, including turn 0 setup | entries |
+| `injection` | `custom_message` by `customType`, chars | entries |
+
+Session summary: counts of the above, cost (assistant requests; compaction, branch summary and
+usage entries are `otherCost`), turns, compactions and `tokensBefore`, peak context, forks,
+duration, model mix, and cost share of the most expensive requests. Directory summary: the
+August audit's quantitative section, computed. The acceptance run for step 3 is
+
+```
+npm run analyze -- summary ./sessions ~/.pi/pi-sub-runs --model gpt-5.6 --until 2026-08-13 --exclude <audit session>
+```
+
+with this mapping to the audit's numbers: assistant turns = `requests` of the `gpt-5.6-*` rows
+of the model mix; recorded cost = `cost`; cost concentration = `topSessionCostShare` and
+`top5SessionCostShare`; tool errors by tool = `toolErrorsByName`; missing-path = 
+`missingPathErrors`; failed commands = `failedCommands`; immediate identical repeats =
+`immediateRepeats`; compactions = `compactions`; 314k = `peakContextTokens`; responses over
+2,000 and 5,000 chars = `longResponses` and `veryLongResponses`. `--model` keeps whole sessions
+that contain the model, as the audit did ("40 sessions containing GPT-5.6 responses"). `--until`
+shows every session as it was at that time (the file truncated there, so later growth, forks and
+compactions do not exist yet); `--since` keeps only the requests at or after the cut.
+
+**Acceptance run, 2026-10-11, first attempt** (before `--until` truncated files; it filtered by
+session start). Two numbers matched exactly: the largest context (314k) and the most expensive
+session ($71.50, the audit's 47.9% of $149.38). The rest did not, for three reasons:
+
+| Audit | Analyzer | Cause |
+| --- | --- | --- |
+| 40 sessions: 15 interactive, 25 sub-runs | 17, all under `sessions/`, 0 under `~/.pi/pi-sub-runs` | The August sub-runs are no longer in the run dir. The 17 include the audit session itself (`--Users-laurenz-.pi--/2026-08-12T09-02-50…`), which `--exclude` removes. |
+| 2,047 turns, $149 | 2,071, $194.64 | Sessions that started before Aug 13 kept growing after the snapshot (the $52.31 session was at most about $25 on audit day). Fixed: `--until` now truncates. |
+| Sol 1,159, Terra 664, Luna 224 | Sol 1,727, Terra 314, Luna 5 | Both causes above: the missing sub-runs carried most Luna and Terra turns, later growth added Sol turns. |
+| 2 compactions | 10 | Compaction was enabled on Aug 12 near 250k; the sessions compacted after the snapshot. Fixed by truncation. |
+| 40 edit errors; 11 responses over 5k | 7; 3 | Mechanical edits and long final reports were sub-run work. |
+| 55 immediate identical repeats | 93 | Definition: see the second run. |
+
+**Second run, same day, with `--until` truncating and the audit session excluded** (16 sessions,
+1,644 requests, $158.98 of which $154.34 GPT-5.6):
+
+| Audit | Analyzer | Reading |
+| --- | --- | --- |
+| Sol 1,159, Terra 664, Luna 224 | Sol 1,300, Terra 314, Luna 5 | Sol is +141 turns and +$11: the `2026-08-12T08-15` session (307 requests, 2 compactions) was running while the audit was written. The audit session started at 09:02, so the exact snapshot is `--until 2026-08-12T09:02:50Z`. Terra −350 and Luna −219 are the 25 sub-runs. |
+| 2 compactions | 4 | The same running session; both of its compactions came after 09:02. |
+| 200 errors (79 read, 76 bash, 40 edit) | 134 (67, 60, 7) | The sub-runs did the mechanical edits: 33 of the 40 edit errors are theirs. |
+| 73 missing-path | 79 | `MISSING_PATH_PATTERNS` is wider than `ENOENT`. |
+| 55 "immediately repeated an identical tool call" | 0 identical retries after an error; 74 immediate repeats of successful calls | Real agents do not retry an error with the same arguments; after an error the next call changes `oldText` or guesses a new path, and the 74 are polling (`cmux read-screen`, sleeps). The audit must have matched on tool or file. Replaced by `errorFollowUps`: for every error, whether the next request was identical, the same tool on the same path, the same tool elsewhere, another tool, or nothing. The audit's 55 should reappear as identical + same target + other target. |
+
+The 25 August sub-runs are gone: `list ~/.pi --until 2026-08-13` finds no session outside
+`agent/sessions` for that period, so their run dirs were deleted with the sessions inside. The
+sub-run part of the audit cannot be reproduced. If sub-runs are to be audited again, `sub` must
+copy `session.jsonl` out of the run dir before cleanup (a one-line change for step 4 to decide).
+
+**Third run, exact snapshot** (`--until 2026-08-12T09:02:50Z`, the audit session's start,
+`--exclude 2026-08-12T09-02-50`): 15 sessions, which is the audit's 15 interactive ones. The
+analyzer's GPT-5.6 figures plus the audit's own numbers for the 25 sub-runs reconcile to the
+audit exactly:
+
+| Metric | Audit | Analyzer | Difference = the 25 sub-runs |
+| --- | --- | --- | --- |
+| GPT-5.6 turns | 2,047 | 1,378 (Sol 1,077, Terra 296, Luna 5) | 669 (Sol 82, Terra 368, Luna 219) |
+| GPT-5.6 cost | $149.38 | $136.15 | $13.23 |
+| Top session | $71.50, 47.9% | $71.50, 50.8% of the interactive total; 47.9% of $149.38 | denominator only |
+| Top five | 81.1% = $121.1 | 85.9% = $120.9 | same five sessions |
+| Compactions | 2 | 2 | none |
+| Largest context | 314k | 314k | none |
+| Tool errors | ~200 (79 read, 76 bash, 40 edit) | 133 (68, 60, 7) | ~67, of which 33 edit |
+| Failed commands | 70 | 58 | 12 |
+| Missing-path | 73 | 80 | pattern table wider than `ENOENT` |
+| "Immediately repeated an identical tool call" | 55 | 54 immediate identical repeats | matches: the audit's metric was immediate identical repeats of any call |
+| Responses over 2,000 / 5,000 chars | 52 / 11 | 37 / 3 | 15 / 8, the children's final reports |
+
+Step 3's acceptance holds for everything on disk; every residual is the deleted sub-run
+population. Three things the run adds to the audit:
+
+- The 55 were not error retries. After an error the next request was: 0 identical, 8 same
+  target, 72 other target, 20 other tool, 33 none. The immediate identical repeats are
+  successful calls repeated (polling with `cmux read-screen` and sleeps, audit finding 10). The
+  audit's finding 6 ("exact edits are retried blindly") is not in the data as identical retries;
+  it is the 8 same-target variants.
+- Of 80 missing-path errors, the next request guessed another path far more often than it
+  listed the directory (see `missingPathFollowUps` in the summary). That is the baseline for the
+  `AGENTS.md` rule "never guess filenames after a missing-path error" added on 2026-08-12, and
+  `summary ./sessions ~/.pi/pi-sub-runs --since 2026-08-13` gives the after. This is the first
+  rule-heatmap cell (deferred section) and costs one command.
+- `correction_turn` found 0 in the 15 sessions, while the audit's finding 7 describes two user
+  corrections. Either the cues miss how this user corrects, or the turns before were short.
+  Step 4 should note the wording of real corrections and extend `CORRECTION_CUES`.
+
+**The first rule cell, before and after the Aug 12 rollout.** Before (the 15 sessions above),
+80 missing-path errors: the next request guessed another path 40 times, listed or searched 6
+times, and the turn ended 31 times. After (`--since 2026-08-13`: 378 sessions, 16,045 requests,
+$1,243.80), 135 missing-path errors: 82 guesses, 36 enumerations, 10 turn ends. Per request the
+errors fell seven-fold (5.7 to 0.84 per 100); among continued turns, enumerating rose from 12%
+to 29%. The model mix changed completely in the same window (GPT-5.6 Sol 90% of cost before,
+Claude Opus 5 and 5.5 77% after), so the plain before/after cannot attribute the drop to the
+rule. The per-model table holds the model fixed (run 2026-10-13, `--since 2026-08-13`: 387
+sessions, 16,940 requests, $1,296.58; the two spellings of each Claude id added up by hand,
+the analyzer merges them since that run):
+
+| model, after Aug 13 | requests | missing path per 100 | guess | enumerate | stop | errors per 100 |
+| --- | --- | --- | --- | --- | --- | --- |
+| gpt-5.6-sol | 1,060 | 0.8 | 2/8 | 5/8 | 1/8 | 4.5 |
+| claude-opus-5 | 6,181 | 0.3 | 17/19 | 2/19 | 0/19 | 2.5 |
+| claude-opus-5.5 | 5,378 | 1.0 | 34/52 | 16/52 | 2/52 | 3.6 |
+| claude-fable-5.1 | 1,006 | 0.9 | 8/9 | 1/9 | 0/9 | 3.3 |
+
+Sol, the model of the before period, went from 3.7 missing-path errors per 100 (the Sol-only
+row of the exact snapshot, 1,077 requests; Terra had 13.2) to 0.8, and after one it enumerates
+5 times in 8 instead of 4 in 40 (guess 25, stop 11). The earlier run printed no per-model
+table because it was made before the table existed; rerun on 2026-11-24. For Sol the rule did what it says. The Claude models hit a missing path a third as often
+as Sol did before, and when they do they guess another path 65% to 89% of the time: low
+relevance, low compliance. Step 4 should read the 19 Opus 5 cases before the rule is reworded
+for Claude; a guessed sibling path that exists is a cheap recovery, not a failure.
+
+Still open: five sessions from March 2026 record zero cost for every request (the 738-request one
+among them), so cost was not recorded by the pi version of that time; cost totals that include
+March undercount.
+
+Per model: `byModel` in the session and directory summaries attributes requests, cost, errors,
+missing-path errors and their follow-ups, failed commands, failing test runs, errored and
+interrupted requests and long responses to the model of each request, so a before/after
+comparison of a rule can hold the model fixed. The directory summary prints it as a table.
+Request points carry the canonical model id (`model.ts`): Anthropic's hyphenated or dated
+spelling of a Claude id (`claude-opus-5-5`, `claude-sonnet-4-5-20250929`) becomes Copilot's
+dotted one (`claude-opus-5.5`, `claude-sonnet-4.5`), so one model is one row and `--model`
+matches both spellings.
+
+`rank.ts` scores a session for the labeling pass: a plain sum of `correction_turn`, `rewind`,
+`error_run` (turns with 3 or more consecutive errors), `repeated_identical_call` and `aborted`,
+each as a rate per 100 requests (the denominator floored at 20 requests) divided by the 90th
+percentile of that rate over the sessions being ranked and clipped to 1, plus peak context over
+200k in units of 100k, clipped to 1. The first real run (2026-10-11) showed why rates: with
+fixed caps on raw counts, every session above about 300 requests saturated rewinds, repeats and
+aborts, and the ranking was by length. The second run showed why the floor: a four-request
+session with one abort was a 25% rate and led the list. Repeats per request dominate the real
+ranking and are mostly polling, so the labeling pass should say whether that signal is quality
+or only cost; the most expensive sessions since August do not rank high by rate and have to be
+labeled on cost alone. The formula is a starting point and lives in one function with a
+comment that says so.
+
+## Labeling pass (step 4)
+
+Output: `reports/session-labels.json`, one record per reviewed session:
+
+```json
+{ "session": "sessions/--...--/2026-...jsonl", "outcome": "bad",
+  "earliestSaveTurn": 7, "level": "prompt", "note": "asked for an assessment, agent started editing" }
+```
+
+`outcome` is `good`, `bad` or `mixed`, decided by evidence in the file (rewinds, abandonment, a
+follow-up session fixing this one, correction turns), not by feel. `level` is one of the table in
+"Why this shape", or `unknown`. Target: the 30 to 50 most recent sessions, every bad one labeled.
+This file is also the validation set for any model-based check that is proposed later.
+
+Tooling (2026-10-13, `labels.ts`):
+
+- `label <file>` prints the worksheet for one session: a header; an evidence line with the
+  turns that have rewinds, corrections, interrupts, provider errors, error runs and questions,
+  how the session ended (answered, a question left open, interrupted, a provider error, a tool
+  call with no answer after it, a user message with no answer) and the three costliest turns;
+  the next session in the same directory with its first message, since a follow-up that fixes
+  this one is outcome evidence; then one block per turn with the request and the final answer
+  in excerpt, the `summary` findings, and the record to fill. `session` in the record is the
+  path as given on the command line.
+- `labels <json> [<dir>...]` checks the file: a record needs `session` and an `outcome`; a bad
+  one also `earliestSaveTurn` (a turn number as `summary` prints them) and `level`; an unknown
+  key or a session labeled twice is a problem; with the session directories given, a turn past
+  the session's end or a session not under them are too. It prints the labels by level and
+  outcome (where they cluster is what step 5 reads), the step 4 "done when", and with
+  directories the unlabeled sessions by rank and by cost. Exit code 1 on problems.
+- `level` keys: `prompt`, `instructions`, `model`, `structure`, `process`, `tooling`, `habit`,
+  the rows of the table in "Why this shape" in their order, plus `unknown`.
+- Procedure: `labels reports/session-labels.json ./sessions ~/.pi/pi-sub-runs` for what is
+  left, `label <file>` for one session, fill the record, append it, run `labels` again. Start
+  with the sessions the rank and summary runs of 2026-10-12 named: by cost the $187, $84, $81,
+  $71 and $62 September sessions, the $109 and $90 July sessions, the audit's $71.50 session,
+  the $52 and $23 August sessions; by rank the `anticheat-fix` sub-run.
+
+## Work memory (addition outside the step plan)
+
+The work-memory extension keeps `items.jsonl`: one work item per line, with `done`, `status` and
+`links`; links ending in `.jsonl` are absolute session paths. The tool reads it, never writes it.
+`--memory <path>` overrides the default (`$WORK_MEMORY_DIR/items.jsonl`, else
+`~/.work-memory/items.jsonl`); a missing file means no memory. Parsing copies the extension's
+`isItem`/`parseItems` (broken lines skipped), and a test parses one fixture with both.
+
+- `label <file>`: a `work memory:` line after the next-session line, one entry per item that
+  links the session: `id [open|done] title: status (+N other sessions)`, or `none`. `--json`
+  has `memory: [...]`. An item still open after several sessions says more about the outcome
+  than one session does.
+- `memory [<dir>...]` (default `sessions`): one row per item by cost: sessions, turns,
+  requests, cost, first and last session date, open/done, title. A last row sums the sessions
+  no item links. Only sessions under the given dirs count, so `linkedSessions` in `--json` can
+  exceed `sessions`. A session linked by two items counts in both.
+- `labels <json> <dir>...`: an `item` column (ids) in the unlabeled lists.
+
+Paths match with `path.resolve` on both sides, so relative dirs work from any cwd.
+
+## Deferred: model-based checks
+
+Not before step 5. Listed so the hook design is not lost. Ranked by expected lever.
+
+1. Request gate at `input`: is there a goal, a done criterion, a reference to something not in
+   context, a conflict with an earlier instruction. One fast call, skipped while steering,
+   thresholded so it fires rarely. Output: a `select` with send, send with note, refine.
+2. Claim audit at `agent_before_settle`: match final claims to tool evidence in `llmMessages`
+   (tests claimed versus a test run result, "updated X" versus an edit on X, each user question
+   versus an answer, scope narrowed silently). On a gap, `continue: true` once per run with a
+   `custom_message` naming it.
+3. Constraint ledger: one extraction call per user turn into `custom` entries; structural
+   compliance checks per `turn_end`; re-injected as a guideline in `before_agent_start` after
+   compaction. Conflicting ledger entries are the contradiction detector.
+4. Assumption surfacing, async from `turn_end`, widget only.
+5. Compaction guard: ledger and open threads into `customInstructions`; verify after.
+6. Loop diagnosis, triggered only by `error_run` or `repeated_identical_call`.
+7. Prose scoring, lowest lever; the structural ratio already shows it.
+
+Validation before any live hook: replay the check over the labeled set from step 4 and report how
+often it fires on the turn that mattered versus on good sessions. A request gate that fires on a
+third of prompts is noise. Also required: tool output inside slices is treated as untrusted data
+in the checker prompt; every `continue: true` has a per-run counter; nested calls are counted and
+shown, since they do not appear in pi's session cost.
+
+## Deferred: attribution ("what lights up")
+
+With API-only models there is no attention to read. Causal answers come from outside the model:
+
+- Rule heatmap: extract rules from each `AGENTS.md` and skill version once; score compliance per
+  rule per turn with the observables; report rule × relevance × compliance. Inert rules go,
+  violated rules get reworded or moved.
+- Natural experiments: join `git log` of `AGENTS.md` with session timestamps for before and after
+  on every past edit.
+- `/ablate <segment>`: fork at the current point, suppress the segment through the `context`
+  event, re-send the last prompt, show both turns side by side. Needs the behavior vocabulary
+  above so the comparison is a table of observables, not two blobs of text. Repeat three to five
+  times per cell; models are not deterministic.
+- Probe suite: 10 to 20 fixed prompts run in print mode after each doc edit, observables compared
+  to the last run.
+- Cheap always-on hints: thinking blocks that name what the model read, lexical overlap between an
+  output and context chunks. Hints, not evidence.
+
+The context treemap plus click-to-ablate is the one feature in this whole plan that a terminal
+does badly and a browser does well. It reads the JSON contract above, so the UI choice can wait.
+
+## Work breakdown
+
+| Step | Deliverable | Done when |
+| --- | --- | --- |
+| 1 | `load.ts`, `cli.ts` with `list <dir>` and `inspect <file>`; dependency and config changes; fixture builder and first fixtures; conformance test against pi's own projection | `npm run analyze -- inspect <file>` prints one row per request point with turn, model, context tokens from `usage`, tool call count. Open questions Q1 to Q5 answered in this spec. Done 2026-10-11; real-file run 2026-11-24. |
+| 2 | `inventory.ts`; `inventory <file> [--turn N]` and `inventory <dir>` | For any session: "what filled the window at turn N" and for a directory: average share by source. First surprises written to the Decisions or a new "Findings" section. Done 2026-10-11 on fixtures. |
+| 3 | `observables.ts`, `rank.ts`; `summary <file>`, `summary <dir>`, `rank <dir>` | Per-turn table has the observables as columns. Directory summary reproduces the August audit's numbers for its period within rounding. Code done 2026-10-11; reproduction run done, every residual is the deleted sub-runs (see "Observables"). |
+| 4 | `reports/session-labels.json` | At least 20 sessions labeled, every bad one with `earliestSaveTurn` and `level`; `labels` checks exactly this. Worksheet and check done 2026-10-13; 23 sessions labeled 2026-11-24. |
+| 5 | A "Decisions" entry in this spec naming the branch taken | Labels cluster read; the cheap fix applied, or the rule heatmap started, or the live checks justified with the replay numbers. D7 accepted 2026-11-24: the cheap fixes. |
+| 6 | Live adapter extension reading `ctx.sessionManager` and `context`; `/ablate`; web view last | Widget shows step 3 counts live; `/ablate` opens a branch and prints the observable diff. |
+
+Steps 1 to 3 are code against the documented format and run anywhere with fixtures. Steps 2
+onward only become interesting against real files in `sessions/` on the machine that wrote them.
+
+## Testing
+
+- vitest, collocated tests, run through `npm test`. Determinism: no timing, no randomness, no
+  conditional assertions.
+- Fixture builder in `fixtures/build.ts`: a small API that writes a synthetic JSONL with a chosen
+  shape (fork, compaction with `firstKeptEntryId`, `custom_message`, tool errors, identical
+  retries, a stale read). Each observable has at least one fixture that triggers it and one that
+  does not.
+- Sanitized real fixtures: a `sanitize <file>` subcommand that keeps structure, ids, usage,
+  timestamps, tool names, paths and sizes, and replaces user text, assistant text and tool result
+  bodies with same-length placeholders. Only sanitized files are committed.
+- Conformance: for every fixture, our context rebuild at every request point equals pi's
+  `buildContextEntries` output for the same leaf.
+
+## Decisions
+
+- D1 Offline over files first, live adapter later. The same functions serve both.
+- D2 No model calls before step 5.
+- D3 Character counts per segment, `usage` for totals, no tokenizer.
+- D4 Lives in `analysis/`, not `extensions/`, so pi does not load it as an extension. Moved from `tools/` on
+  2026-11-24: pi 1.5 treats `~/.pi/agent/tools/` as a legacy custom-tools dir and stops every start at a
+  "Press any key" warning.
+- D5 One request point per assistant message on the active branch; forks reported separately.
+- D6 pi's own loader and projection for parsing, pinned to the installed pi version, with a
+  conformance test so a pi upgrade that changes projection rules shows up as a failing test.
+- D7 (**Accepted** 2026-11-24) Step 5 branch: the cheap fixes, no live checks.
+  Labels: 23 sessions, $954 in total (`reports/session-labels.json`). There are 10 good, 12 mixed and 1 bad;
+  all 23 were labeled by a model in one pass and only the bad one was checked by hand.
+
+  | level | sessions | of which bad | session cost |
+  | --- | --- | --- | --- |
+  | prompt | 4 | 1 | $46 |
+  | tooling | 3 | 0 | $109 |
+  | instructions | 2 | 0 | $269 |
+  | process | 2 | 0 | $180 |
+  | structure | 1 | 0 | $35 |
+  | model | 1 | 0 | $9 |
+
+  By level, no row dominates. The cost column is whole-session cost, not detour cost, so it
+  overstates the two large `instructions` sessions. By cause, one cluster is clear: 4 of the 13
+  non-good sessions lost turns to remote prod access (SSH tunnel drops during long exports
+  2026-07-09 and 2026-08-10, herd/jumphost and DB credential failures in two sessions on
+  2026-11-23). The labelers split them between `process` and `tooling`. Prompt
+  ambiguity is the second pattern (4 sessions, 3 of them for less than $15: "the review" meant the PR, an
+  unstated cutoff, a heading asked for and then dropped).
+
+  Proposal:
+  1. Tooling: a skill or script for prod data jobs that checks the tunnel and credentials before it
+     starts and runs long jobs on the jumphost (docker), not over the tunnel. 2026-08-10 shows
+     the difference (turns 6 to 18 over the tunnel, fast after the switch).
+  2. Prompt: one standing guideline, "ask when a reference (the review, the export) has two
+     readings", and no template.
+  3. No live model check. Every detour above was visible to the user when it happened, and the
+     fix was a different next action, not a signal. That fails the decision rule in "Why this shape".
+  4. Measure: relabel the next 20 sessions after 1 and 2 ship, and compare the tooling and prompt rows.
+
+  Caveats: one labeler (Sonnet 5.5) and no second opinion. Save turns for 2026-09-16, 2026-08-13
+  and 2026-11-11 are flagged as judgment calls in the batch notes. Two sessions over $60
+  (2026-09-02, 2026-10-06) are labeled good despite corrections.
+
+## Open questions (settled against pi 1.1.0 source on 2026-10-11, confirmed on real files 2026-11-24)
+
+`inspect <file>` prints one line per question before its table, so the first run on real files
+confirms or corrects each answer.
+
+- Q1 `AGENTS.md` and the other context files land in the `project_context` section, each file
+  wrapped as `<project_instructions path="...">...</project_instructions>`. The key set is
+  decided by the pi version that wrote the session; for 1.1.0 it is the list in F3. Real files
+  (2026-11-24): an interactive session has the F3 keys plus the extension sections
+  `mcp_servers` and `work_memory`, and `project_context` holds `AGENTS.md` and the repo's
+  `CLAUDE.md`; a sub-run has no `skills` section.
+- Q2 Thinking is persisted as `thinking` content blocks (`thinking` text, optional
+  `thinkingSignature`, `redacted`) whenever the provider returns them; a redacted block has no
+  text. Real files: in the 40 most recent sessions every Claude model on both providers
+  (`anthropic`, `github-copilot`) stored thinking text; GPT models did not appear in them.
+- Q3 Sub-run children are not in `sessions/`: `sub` starts them on
+  `~/.pi/pi-sub-runs/<run>/session.jsonl` and writes the parent's session id to `<run>/parent`.
+  The header's `parentSession` appears only for `/fork`, `/clone` and `newSession({ parentSession })`.
+  Parent and child link through `<run>/parent` = the parent header's `id`. The CLI takes several
+  roots, so pass both directories. Confirmed on a real run dir: the header has no
+  `parentSession`, and `<run>/parent` holds the parent's session id.
+- Q4 pi 1.1.0 knows versions 1, 2 and 3 and `migrateSessionEntries` upgrades 1 to 2 (assigning
+  random ids, so a v1 file is not stable across loads) and 2 to 3 (`hookMessage` role becomes
+  `custom`). Real files: all 1,005 files in `sessions/` and `~/.pi/pi-sub-runs` are version 3.
+- Q5 Two ways only: the model reads the `<location>` path listed in the `skills` section (a
+  `read` or `bash` tool result), or the user types `/skill:name`, which inlines
+  `<skill name="..." location="...">` into the user message (F12). Attribution: a tool result
+  for a listed location is `tool_result` with label `skill:<name>`; a user message starting with
+  `<skill name=` is `user` with label `skill:<name>`. Real files: a 2026-11-23 session shows
+  two model-initiated loads (`read` of `skills/subagents/SKILL.md` and `skills/show-me/SKILL.md`).
