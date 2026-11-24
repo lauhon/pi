@@ -5,9 +5,8 @@
 > Steps 1 to 3 were implemented on 2026-10-11 in a container that had the repo but no
 > `sessions/` directory and no `pi` binary. Every fact and answer marked "source" below was
 > checked against the installed package `@earendil-works/pi-coding-agent@1.1.0` (dist and
-> docs), not against real session files. The first run on the machine that has `sessions/`
-> is still owed: `npm run analyze -- inspect <file>` prints the facts for Q1 to Q5 on its
-> first lines.
+> docs), not against real session files. The real-file check ran on 2026-11-24 on the
+> machine that has `sessions/` (1,005 files); see "Open questions".
 
 ## Goal
 
@@ -63,7 +62,7 @@ whose firing changes the next action in the session earns a live model call.
 
 F1 to F8 were checked against the pi docs and source on `earendil-works/pi` `main`, not against a
 running pi. Rows marked "1.1.0" were re-checked on 2026-10-11 against the installed package. The
-re-check against real files in `sessions/` is still pending (see the status note at the top).
+re-check against real files in `sessions/` ran on 2026-11-24 (see "Open questions").
 
 | # | Fact | Consequence |
 | --- | --- | --- |
@@ -364,10 +363,10 @@ the analyzer merges them since that run):
 | claude-opus-5.5 | 5,378 | 1.0 | 34/52 | 16/52 | 2/52 | 3.6 |
 | claude-fable-5.1 | 1,006 | 0.9 | 8/9 | 1/9 | 0/9 | 3.3 |
 
-Sol, the model of the before period, went from 5.7 missing-path errors per 100 (the whole
-before population, 90% Sol by cost; the exact-snapshot command above prints the Sol-only row
-now, that run is still owed) to 0.8, and after one it enumerates 5 times in 8 instead of 6 in
-80. For Sol the rule did what it says. The Claude models hit a missing path a third as often
+Sol, the model of the before period, went from 3.7 missing-path errors per 100 (the Sol-only
+row of the exact snapshot, 1,077 requests; Terra had 13.2) to 0.8, and after one it enumerates
+5 times in 8 instead of 4 in 40 (guess 25, stop 11). The earlier run printed no per-model
+table because it was made before the table existed; rerun on 2026-11-24. For Sol the rule did what it says. The Claude models hit a missing path a third as often
 as Sol did before, and when they do they guess another path 65% to 89% of the time: low
 relevance, low compliance. Step 4 should read the 19 Opus 5 cases before the rule is reworded
 for Claude; a guessed sibling path that exists is a cheap recovery, not a failure.
@@ -486,9 +485,9 @@ does badly and a browser does well. It reads the JSON contract above, so the UI 
 
 | Step | Deliverable | Done when |
 | --- | --- | --- |
-| 1 | `load.ts`, `cli.ts` with `list <dir>` and `inspect <file>`; dependency and config changes; fixture builder and first fixtures; conformance test against pi's own projection | `npm run analyze -- inspect <file>` prints one row per request point with turn, model, context tokens from `usage`, tool call count. Open questions Q1 to Q5 answered in this spec. Done 2026-10-11 except the real-file run. |
+| 1 | `load.ts`, `cli.ts` with `list <dir>` and `inspect <file>`; dependency and config changes; fixture builder and first fixtures; conformance test against pi's own projection | `npm run analyze -- inspect <file>` prints one row per request point with turn, model, context tokens from `usage`, tool call count. Open questions Q1 to Q5 answered in this spec. Done 2026-10-11; real-file run 2026-11-24. |
 | 2 | `inventory.ts`; `inventory <file> [--turn N]` and `inventory <dir>` | For any session: "what filled the window at turn N" and for a directory: average share by source. First surprises written to the Decisions or a new "Findings" section. Done 2026-10-11 on fixtures. |
-| 3 | `observables.ts`, `rank.ts`; `summary <file>`, `summary <dir>`, `rank <dir>` | Per-turn table has the observables as columns. Directory summary reproduces the August audit's numbers for its period within rounding. Code done 2026-10-11; the reproduction run is pending (see "Observables"). |
+| 3 | `observables.ts`, `rank.ts`; `summary <file>`, `summary <dir>`, `rank <dir>` | Per-turn table has the observables as columns. Directory summary reproduces the August audit's numbers for its period within rounding. Code done 2026-10-11; reproduction run done, every residual is the deleted sub-runs (see "Observables"). |
 | 4 | `reports/session-labels.json` | At least 20 sessions labeled, every bad one with `earliestSaveTurn` and `level`; `labels` checks exactly this. Worksheet and check done 2026-10-13; the labeling is pending. |
 | 5 | A "Decisions" entry in this spec naming the branch taken | Labels cluster read; the cheap fix applied, or the rule heatmap started, or the live checks justified with the replay numbers. |
 | 6 | Live adapter extension reading `ctx.sessionManager` and `context`; `/ablate`; web view last | Widget shows step 3 counts live; `/ablate` opens a branch and prints the observable diff. |
@@ -520,30 +519,33 @@ onward only become interesting against real files in `sessions/` on the machine 
 - D6 pi's own loader and projection for parsing, pinned to the installed pi version, with a
   conformance test so a pi upgrade that changes projection rules shows up as a failing test.
 
-## Open questions (settled against pi 1.1.0 source on 2026-10-11; real-file check pending)
+## Open questions (settled against pi 1.1.0 source on 2026-10-11, confirmed on real files 2026-11-24)
 
 `inspect <file>` prints one line per question before its table, so the first run on real files
 confirms or corrects each answer.
 
 - Q1 `AGENTS.md` and the other context files land in the `project_context` section, each file
   wrapped as `<project_instructions path="...">...</project_instructions>`. The key set is
-  decided by the pi version that wrote the session; for 1.1.0 it is the list in F3. Which other
-  key sets exist in `sessions/` is unverified: `inspect` prints the keys at the last request.
+  decided by the pi version that wrote the session; for 1.1.0 it is the list in F3. Real files
+  (2026-11-24): an interactive session has the F3 keys plus the extension sections
+  `mcp_servers` and `work_memory`, and `project_context` holds `AGENTS.md` and the repo's
+  `CLAUDE.md`; a sub-run has no `skills` section.
 - Q2 Thinking is persisted as `thinking` content blocks (`thinking` text, optional
   `thinkingSignature`, `redacted`) whenever the provider returns them; a redacted block has no
-  text. Which providers return text is unverified: `inspect` prints thinking characters per
-  provider and model.
+  text. Real files: in the 40 most recent sessions every Claude model on both providers
+  (`anthropic`, `github-copilot`) stored thinking text; GPT models did not appear in them.
 - Q3 Sub-run children are not in `sessions/`: `sub` starts them on
   `~/.pi/pi-sub-runs/<run>/session.jsonl` and writes the parent's session id to `<run>/parent`.
   The header's `parentSession` appears only for `/fork`, `/clone` and `newSession({ parentSession })`.
   Parent and child link through `<run>/parent` = the parent header's `id`. The CLI takes several
-  roots, so pass both directories. Unverified against real run dirs.
+  roots, so pass both directories. Confirmed on a real run dir: the header has no
+  `parentSession`, and `<run>/parent` holds the parent's session id.
 - Q4 pi 1.1.0 knows versions 1, 2 and 3 and `migrateSessionEntries` upgrades 1 to 2 (assigning
   random ids, so a v1 file is not stable across loads) and 2 to 3 (`hookMessage` role becomes
-  `custom`). Which versions exist in `sessions/` is unverified: `inspect` and `list --json` print
-  the version.
+  `custom`). Real files: all 1,005 files in `sessions/` and `~/.pi/pi-sub-runs` are version 3.
 - Q5 Two ways only: the model reads the `<location>` path listed in the `skills` section (a
   `read` or `bash` tool result), or the user types `/skill:name`, which inlines
   `<skill name="..." location="...">` into the user message (F12). Attribution: a tool result
   for a listed location is `tool_result` with label `skill:<name>`; a user message starting with
-  `<skill name=` is `user` with label `skill:<name>`.
+  `<skill name=` is `user` with label `skill:<name>`. Real files: a 2026-11-23 session shows
+  two model-initiated loads (`read` of `skills/subagents/SKILL.md` and `skills/show-me/SKILL.md`).
