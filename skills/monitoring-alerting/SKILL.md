@@ -2,6 +2,7 @@
 name: monitoring-alerting
 
 description: Comprehensive monitoring and alerting management including monitors, templates, notification routing, and downtimes. Complete lifecycle from creation to alert delivery to maintenance windows.
+disable-model-invocation: true
 ---
 
 # Monitoring & Alerting Agent

@@ -2,6 +2,7 @@
 name: observability-pipelines
 
 description: Specialized agent for managing Datadog Observability Pipelines - configure data collection, processing, and routing pipelines within your infrastructure
+disable-model-invocation: true
 ---
 
 # Observability Pipelines Agent

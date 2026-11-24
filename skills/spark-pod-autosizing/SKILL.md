@@ -2,6 +2,7 @@
 name: spark-pod-autosizing
 
 description: Optimize Apache Spark workload configurations with AI-powered resource recommendations based on historical usage patterns. Get rightsized CPU, memory, and storage recommendations for Spark drivers and executors.
+disable-model-invocation: true
 ---
 
 # Spark Pod Autosizing Agent

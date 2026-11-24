@@ -2,6 +2,7 @@
 name: error-tracking
 
 description: Manage Datadog Error Tracking including issue search, triage, assignment, and lifecycle management.
+disable-model-invocation: true
 ---
 
 # Error Tracking Agent

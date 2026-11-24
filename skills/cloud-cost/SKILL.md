@@ -2,6 +2,7 @@
 name: cloud-cost
 
 description: Manage Datadog Cloud Cost Management including multi-cloud configuration, cost allocation rules, custom costs, and budget tracking.
+disable-model-invocation: true
 ---
 
 # Cloud Cost Management Agent

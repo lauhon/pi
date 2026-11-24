@@ -2,6 +2,7 @@
 name: database-monitoring
 
 description: Query and manage Datadog Database Monitoring (DBM) data, including database metrics, query performance, and DBM-specific monitors.
+disable-model-invocation: true
 ---
 
 # Database Monitoring Agent

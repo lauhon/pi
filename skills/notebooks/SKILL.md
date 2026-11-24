@@ -2,6 +2,7 @@
 name: notebooks
 
 description: Manage Datadog Notebooks for collaborative investigation, documentation, and reporting with mixed content cells.
+disable-model-invocation: true
 ---
 
 # Notebooks Agent

@@ -2,6 +2,7 @@
 name: security-posture-management
 
 description: Manage Cloud Security Posture Management (CSPM), vulnerability management, security findings, SBOM analysis, and CSM coverage monitoring.
+disable-model-invocation: true
 ---
 
 # Security Posture Management Agent

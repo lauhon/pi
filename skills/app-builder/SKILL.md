@@ -2,6 +2,7 @@
 name: app-builder
 
 description: Manage Datadog App Builder applications including listing, creating, updating, publishing, and managing custom low-code internal tools.
+disable-model-invocation: true
 ---
 
 # App Builder Agent

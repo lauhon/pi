@@ -2,6 +2,7 @@
 name: agentless-scanning
 
 description: Specialized agent for managing Datadog Agentless Scanning - configure cloud security scanning for AWS and Azure resources without requiring Agents
+disable-model-invocation: true
 ---
 
 # Agentless Scanning Agent

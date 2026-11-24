@@ -2,6 +2,7 @@
 name: dashboards
 
 description: Manage Datadog dashboards including listing, viewing, creating, updating, and deleting dashboards with their widgets and configurations.
+disable-model-invocation: true
 ---
 
 # Dashboards Agent

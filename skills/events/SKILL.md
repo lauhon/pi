@@ -2,6 +2,7 @@
 name: events
 
 description: Manage Datadog events including event submission, search, filtering, and custom event stream management.
+disable-model-invocation: true
 ---
 
 # Events Management Agent

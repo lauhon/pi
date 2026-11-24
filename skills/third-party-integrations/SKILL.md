@@ -2,6 +2,7 @@
 name: third-party-integrations
 
 description: Manage third-party integrations including PagerDuty, Slack, OpsGenie, Microsoft Teams, Fastly, Confluent Cloud, Cloudflare, and Okta account configurations.
+disable-model-invocation: true
 ---
 
 # Third-Party Integrations Agent

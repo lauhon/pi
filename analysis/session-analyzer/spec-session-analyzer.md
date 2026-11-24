@@ -232,6 +232,16 @@ Surprises so far, from the source and the fixtures; the real-file run will add t
 - X9 One model, two ids: Anthropic spells the version with hyphens (`claude-opus-5-5`),
   GitHub Copilot with a dot (`claude-opus-5.5`), and a dated snapshot adds a suffix. The
   October table had Opus 5.5 and Fable 5.1 as two rows each; merged since 2026-10-13.
+- X10 (52 sessions since 2026-11-10, 3,584 requests) Fixed context is about 60% of an average
+  request: `project_context` 24.8%, skills listing 17.1%, tool descriptions 16.8%, tool results
+  25.8%. In those sessions the agent read 15 skills, none of them Datadog skills, and called
+  the `pup_*` tools 45 times. `pi-claude-code-use` adds an `mcp__` alias for each extension tool
+  and sends only the alias; `inventory` counted both until `aliasedFlatTools` (same name suffix,
+  same schema), which cut the 52-session tool-description share from 19.2% to 16.8%.
+  Fix 2026-11-24: 56 skills got `disable-model-invocation: true`, the cmux how-to moved from
+  `AGENTS.md` into the `cmux` skill. First request of a fresh session in `~/Workspace/RedBull`:
+  skills listing 21,705 to 5,245 chars, `project_context` 9,026 to 6,608 chars.
+  `skills/context-budget.test.ts` holds AGENTS.md ≤7,000 bytes and listed descriptions ≤3,500 chars.
 
 ## Observables (step 3)
 

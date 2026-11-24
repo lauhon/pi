@@ -2,6 +2,7 @@
 name: application-security
 
 description: Manage Application Security Management (ASM) including WAF rules, threat detection, API protection, and application-level security monitoring.
+disable-model-invocation: true
 ---
 
 # Application Security Agent

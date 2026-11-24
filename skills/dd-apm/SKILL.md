@@ -8,6 +8,7 @@ metadata:
   tags: datadog,apm,tracing,performance,distributed-tracing,dd-apm
   globs: "**/ddtrace*,**/datadog*.yaml,**/*trace*"
   alwaysApply: "false"
+disable-model-invocation: true
 ---
 
 # Datadog APM

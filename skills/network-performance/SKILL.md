@@ -2,6 +2,7 @@
 name: network-performance
 
 description: Manage Datadog Network Performance Monitoring (NPM) and Network Device Monitoring (NDM) including connection analytics, DNS traffic, and device monitoring.
+disable-model-invocation: true
 ---
 
 # Network Performance Agent

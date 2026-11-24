@@ -2,6 +2,7 @@
 name: azure-integration
 
 description: Configure and manage Azure integration for monitoring, log collection, and resource tracking across Azure subscriptions and services.
+disable-model-invocation: true
 ---
 
 # Azure Integration Agent

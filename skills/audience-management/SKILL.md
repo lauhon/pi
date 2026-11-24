@@ -2,6 +2,7 @@
 name: audience-management
 
 description: Query and segment RUM users and accounts, manage data connections to enrich audience data with external sources like CRMs and reference tables.
+disable-model-invocation: true
 ---
 
 # Audience Management Agent

@@ -2,6 +2,7 @@
 name: rum
 
 description: Query Real User Monitoring events and analytics.
+disable-model-invocation: true
 ---
 
 # RUM Agent

@@ -2,6 +2,7 @@
 name: apm-configuration
 
 description: Manage Datadog APM configuration including retention filters for span indexing and span-based metrics generation from distributed traces.
+disable-model-invocation: true
 ---
 
 # APM Configuration Agent

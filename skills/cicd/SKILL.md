@@ -2,6 +2,7 @@
 name: cicd
 
 description: Manage CI/CD Visibility including test monitoring, pipeline analytics, DORA metrics, and deployment gates.
+disable-model-invocation: true
 ---
 
 # CI/CD Visibility Agent

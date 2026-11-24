@@ -2,6 +2,7 @@
 name: saml-configuration
 
 description: Configure SAML Single Sign-On (SSO) by uploading Identity Provider (IdP) metadata for secure authentication integration.
+disable-model-invocation: true
 ---
 
 # SAML Configuration Agent

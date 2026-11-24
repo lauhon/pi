@@ -3,6 +3,7 @@ name: dd-code-generation
 
 description: Use pup CLI for immediate Datadog operations or generate code for integration into applications
 tags: [pup, cli, code-generation, typescript, python, java, go, rust]
+disable-model-invocation: true
 ---
 
 # Datadog Integration Skill

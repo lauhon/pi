@@ -2,6 +2,7 @@
 name: usage-metering
 
 description: Query Datadog usage and billing across all products including infrastructure hosts, logs, metrics, APM, synthetics, and view cost attribution by tags.
+disable-model-invocation: true
 ---
 
 # Usage Metering Agent

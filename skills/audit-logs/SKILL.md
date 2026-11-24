@@ -2,6 +2,7 @@
 name: audit-logs
 
 description: Query and manage Datadog Audit Trail events for compliance, security auditing, and tracking user actions across the platform.
+disable-model-invocation: true
 ---
 
 # Audit Logs Agent
