@@ -49,7 +49,7 @@
 - Before finalizing, reconcile explicit requirements against implementation and verification. State unmet or unverified items plainly.
 - Report only completed actions. If a subagent is running asynchronously, do not imply completion; read its output and inspect relevant changes before reporting results.
 - Ask before expanding implementation into incidental fixes outside the agreed scope.
-- Use cmux, background logs, and completion notifications for long-running work; avoid repeated foreground sleep or polling loops.
+- Never wait with repeated foreground sleeps or polling turns. Follow "Waiting for a command" below.
 - Before stateful production, database, or cloud actions, state the target, read/write mode, expected effect, rollback or stop condition, and exact command; await approval.
 - At major phase or topic boundaries in long sessions, checkpoint progress and recommend `/compact` or a named fresh session before continuing.
 
@@ -86,7 +86,25 @@ cmux send --surface <ref> "command\n"
 cmux read-screen --surface <ref> --lines 40
 ```
 
+### Waiting for a command
+
+- Fixed delay or shell-checkable condition: one `bash` call, `sleep N && <check>` or `timeout N bash -c 'until <check>; do sleep 5; done'`.
+- Terminal-tab command expected to finish in ≲10 min: end it with a signal and block once on it. Use a unique token per run: a signal is kept until one waiter consumes it, so a reused name can return on a stale signal.
+  ```bash
+  cmux send --surface <ref> "pnpm test; echo \"exit=\$?\"; cmux wait-for -S tests-<unique>\n"
+  cmux wait-for tests-<unique> --timeout 600   # exits 1 on timeout
+  cmux read-screen --surface <ref> --lines 40
+  ```
+- Longer (CI, deploys, long suites): don't block. Append `; cmux notify --title "<task> done" --body "exit=$?"` to the command, end the turn, and tell the user to message you when it fires.
+
 For the full cmux API (notifications, sidebar status, keys, etc.), you can load the `cmux` skill if you need to.
+
+## Codemode (restrictive)
+
+- Never use codemode for waits a shell can express, a single tool call, or two sequential calls.
+- Use it only when it replaces ≥3 model turns: polling a non-shell tool (pup_*, MCP, fetch), waiting on several sources (all or first), ≥3 independent parallel calls, or filtering large output before it reaches context.
+- Sleep inside a script with `tools.bash({ command: "sleep N" })`; the sandbox has no timers.
+- Every wait script sets `timeout_ms`, a max iteration count, `max_output_tokens` ≤500, and returns one status object, never per-iteration output.
 
 ## Browser Automation — Use cmux browser
 
@@ -112,9 +130,9 @@ cmux markdown ./path/to/file.md                  # shorthand
 
 ## Git Operations
 
-- **Always ask before** running any git commands (`git commit`, `git push`, `git rm`, `git reset`, `git checkout`, `git branch`, `git merge`, `git rebase`, `git stash`, `git tag`, etc.)
-- Present the exact command(s) you intend to run and wait for approval
-- This applies to all git-related operations without exception
+- Regular git work (branch, commit, push, open PRs) needs no approval.
+- **Always ask before** merging a PR (`gh pr merge`, merging into `main`) or deploying a release by tag (`git tag`, pushing tags, `gh release create`).
+- For those, present the exact command(s) you intend to run and wait for approval.
 
 ## Jira
 

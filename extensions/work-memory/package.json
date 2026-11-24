@@ -1,0 +1,9 @@
+{
+  "name": "work-memory",
+  "version": "0.1.0",
+  "description": "pi extension: short cross-project log of work items, built from finished sessions",
+  "private": true,
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}

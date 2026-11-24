@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "1.1.0",
+  "lastChangelogVersion": "1.5.2",
   "defaultProvider": "github-copilot",
   "defaultModel": "claude-opus-5.5",
   "defaultThinkingLevel": "medium",
@@ -12,11 +12,14 @@
   "steeringMode": "one-at-a-time",
   "followUpMode": "one-at-a-time",
   "packages": [
-    "npm:@benvargas/pi-claude-code-use",
-    "npm:pi-web-access",
-    "npm:@hypabolic/pi-hypa"
+    "npm:@benvargas/pi-claude-code-use@2.2.1",
+    "npm:pi-web-access@0.44.0",
+    "npm:@hypabolic/pi-hypa@1.2.0"
   ],
   "theme": "dark",
+  "defaultTools": [
+    "+codemode"
+  ],
   "subagents": {
     "disableThinking": true,
     "agentOverrides": {
@@ -53,5 +56,8 @@
         "defaultContext": "fresh"
       }
     }
+  },
+  "extensionChangelogVersions": {
+    "{\"source\":\"npm:pi-web-access@0.44.0\",\"scope\":\"user\"}": "0.44.0"
   }
 }

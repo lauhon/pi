@@ -683,6 +683,22 @@ describe("first-tick visibility", () => {
 		expect(selectVisibleRuns([r], new Map([["/old", memory]]), now, DEFAULT_CONFIG)).toEqual([]);
 	});
 
+	it("keeps a pre-finished run hidden on ticks after the first", () => {
+		const now = 1_000_000;
+		const r = run({ dir: "/old", state: "closed" });
+		const first = transition(undefined, r, [], new Map(), DEFAULT_CONFIG, true, now);
+		const second = transition(first.memory, r, [], new Map(), DEFAULT_CONFIG, false, now + 2_000);
+		expect(second.memory.finishedAt).toBeUndefined();
+		expect(selectVisibleRuns([r], new Map([["/old", second.memory]]), now + 2_000, DEFAULT_CONFIG)).toEqual([]);
+	});
+
+	it("lingers a run that appears already finished after the first tick", () => {
+		const now = 1_000_000;
+		const r = run({ dir: "/quick", state: "closed" });
+		const { memory } = transition(undefined, r, [], new Map(), DEFAULT_CONFIG, false, now);
+		expect(memory.finishedAt).toBe(now);
+	});
+
 	it("still lingers a run observed finishing live", () => {
 		const now = 1_000_000;
 		const active = run({ dir: "/live", state: "running" });
