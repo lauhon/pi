@@ -47,10 +47,12 @@
 - For complex SQL, JSON payloads, or multi-line or nested shell, write a temporary file or script and run a simple command.
 - After one failed exact edit, re-read wider surrounding context. After two failures in the same section, stop and reassess.
 - Before finalizing, reconcile explicit requirements against implementation and verification. State unmet or unverified items plainly.
+- When a reference in the request has two readings ("the review": the PR or the comments; "the export": which one), ask before acting.
 - Report only completed actions. If a subagent is running asynchronously, do not imply completion; read its output and inspect relevant changes before reporting results.
 - Ask before expanding implementation into incidental fixes outside the agreed scope.
 - Never wait with repeated foreground sleeps or polling turns (see the cmux section).
 - Before stateful production, database, or cloud actions, state the target, read/write mode, expected effect, rollback or stop condition, and exact command; await approval.
+- Subagents (`sub`) default to `github-copilot/claude-sonnet-5.5`; use GitHub Copilot models, not the `anthropic` provider.
 - At major phase or topic boundaries in long sessions, checkpoint progress and recommend `/compact` or a named fresh session before continuing.
 
 ## Terminal commands: use cmux

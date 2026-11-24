@@ -11,5 +11,5 @@
     "types": ["vitest/globals"]
   },
   "include": ["extensions/**/*.ts", "analysis/**/*.ts"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "extensions/premium-usage.disabled/index.test.ts"]
 }

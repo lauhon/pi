@@ -64,7 +64,7 @@ Usage:
   sub clean [--all]                         Remove old/closed run dirs; always sweeps inbox/*.sent,*.rejected
 
 Spawn options:
-  --model <provider/id>   Model (default: github-copilot/claude-haiku-4.5)
+  --model <provider/id>   Model (default: github-copilot/claude-sonnet-5.5)
   --cwd <dir>             Working directory for the child (default: current dir)
   --tools <list>          Restrict tools, e.g. read,grep,find,ls for read-only
   --thinking <level>      off|minimal|low|medium|high (default: off; low for Sonnet 5.5, which rejects off)
@@ -424,7 +424,7 @@ cmd_spawn() {
   local name; name=$(sanitize "$raw_name")
   [[ -n "$name" ]] || { echo "error: empty name" >&2; return 1; }
 
-  local model="github-copilot/claude-haiku-4.5" cwd="$PWD" tools="" thinking=""
+  local model="github-copilot/claude-sonnet-5.5" cwd="$PWD" tools="" thinking=""
   local task="" taskfile="" exts=()
   while [[ $# -gt 0 ]]; do
     case "$1" in

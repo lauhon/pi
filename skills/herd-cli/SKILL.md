@@ -1,6 +1,6 @@
 ---
 name: herd-cli
-description: "Use herd safely for AWS access, cloud status, privilege elevation, ECS scaling, tunnels, and other herd-cli workflows. Defaults to developer/read-only access, requires explicit temporary PowerUser escalation and confirmation for consequential operations, and protects credentials."
+description: "Use herd safely for AWS access, cloud status, privilege elevation, ECS scaling, tunnels, prod database queries and exports, and other herd-cli workflows. Defaults to developer/read-only access, requires explicit temporary PowerUser escalation and confirmation for consequential operations, and protects credentials."
 ---
 
 # Safe herd-cli Usage
@@ -88,3 +88,27 @@ before execution.
 - If account or role identity differs from the confirmed target, stop.
 - If elevation fails or expires, report that state without exposing command output containing
   credentials and request a fresh explicit decision.
+
+## Prod database jobs (queries, exports, imports)
+
+Five labeled sessions lost turns here: tunnels that dropped during long exports, a wrong `.env`,
+a pasted password, a herd/jumphost outage. Run this preflight before the first query and report
+each line:
+
+1. AWS identity: `aws --profile herd-<account-slug> sts get-caller-identity`.
+2. Tunnel or jumphost reachable: `herd aws tunnel --account <account> --host <db-host> --port <port> -- <script>`
+   wraps a short job and closes the tunnel with it; for an open tunnel check `nc -z localhost <port>`.
+3. DB login: one `select 1` with `default_transaction_read_only = on` (`PGOPTIONS='-c default_transaction_read_only=on'`).
+   Read credentials from the source the repo documents. Never ask the user to paste a password, and
+   name which `.env` you read.
+
+Then pick where the job runs:
+
+- Short reads (a few minutes, small output): over the tunnel, inside a script passed to `herd aws tunnel ... --`.
+- Long exports or imports (more than ~5 minutes or ~1 GB): run them on the jumphost in docker
+  (`ssh` in, `docker run postgres:<version> psql|pg_dump ...`, write compressed output there, `scp` it
+  back). An SSH tunnel drops under long `COPY` streams; on 2026-08-10 the export stalled over the
+  tunnel for 12 turns and finished fast once moved to the jumphost.
+
+If a preflight step or the tunnel fails twice, stop and tell the user what failed (herd itself can be
+down, e.g. during a Spinnaker outage) instead of trying variants.

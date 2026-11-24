@@ -57,16 +57,16 @@ undrained work.
 
 ## Role → model defaults
 
-Pick the cheapest model that fits the job. Pass via `--model`:
+Default is `github-copilot/claude-sonnet-5.5` (no `--model` needed). Use GitHub Copilot models,
+not the `anthropic` provider, which bills the Claude subscription quota. Pass `--model` only to deviate:
 
 | Role | Model | Notes |
 |------|-------|-------|
-| Recon / simple lookups / summaries | `github-copilot/gpt-5.6-luna` | default, very cheap |
-| Scouts / code reading that needs judgment (trace a value, map repos) | `github-copilot/claude-sonnet-5.5` | luna was too shallow; don't use `gpt-5.6-sol` for scouts, too expensive |
-| Implementation (code changes) | `github-copilot/gpt-5.6-terra` | |
+| Scouts, recon, labeling, code reading, implementation | `github-copilot/claude-sonnet-5.5` | default; thinking low |
+| Bulk lookups / summaries where depth doesn't matter | `github-copilot/claude-haiku-5.5` | cheaper |
 | Review / planning | `github-copilot/claude-opus-5.5` | combine with read-only tools |
 | Research (web) | `github-copilot/gpt-5.6-sol` | needs web extension, see below |
-| Ops / script & migration execution (prepare, run, test DB migrations, heavy bash work) | `github-copilot/gpt-5.6-sol` | best at executing scripts |
+| Ops / script & migration execution (heavy bash work) | `github-copilot/gpt-5.6-sol` | best at executing scripts |
 
 Registry warnings like `Model "..." not found ... Using custom model id` are harmless.
 

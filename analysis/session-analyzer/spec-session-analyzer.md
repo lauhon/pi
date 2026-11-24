@@ -242,6 +242,12 @@ Surprises so far, from the source and the fixtures; the real-file run will add t
   `AGENTS.md` into the `cmux` skill. First request of a fresh session in `~/Workspace/RedBull`:
   skills listing 21,705 to 5,245 chars, `project_context` 9,026 to 6,608 chars.
   `skills/context-budget.test.ts` holds AGENTS.md ≤7,000 bytes and listed descriptions ≤3,500 chars.
+  Second pass the same day: `pi-web-access` set to `toolActivation: "dynamic"` (web tools were called
+  in 30 of 139 sessions since 2026-09-25) and `source_check` off (1 call). First Opus request in
+  `~/Workspace/RedBull`: 26.5k to 14.5k tokens. Tool results by tool (52 sessions): bash 70%, read
+  19%; file reads (`sed`, `cat`, `rg`, `grep`, `read`) are about 47% of all tool-result chars, which
+  is the work itself. `pup_logs_search` and `pup_metrics_query` averaged 10-13k chars per call;
+  `dd-pup-pi` now prints compact JSON, 36% fewer chars on the 14 stored results.
 
 ## Observables (step 3)
 

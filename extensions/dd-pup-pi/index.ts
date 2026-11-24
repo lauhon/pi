@@ -29,10 +29,12 @@
 
 import { Type, type Static } from "typebox";
 import type {
+	AgentToolResult,
 	ExtensionAPI,
 	ExtensionContext,
-	ToolExecutionResult,
 } from "@earendil-works/pi-coding-agent";
+
+type ToolExecutionResult = AgentToolResult<Record<string, unknown>>;
 
 // ---------------------------------------------------------------------------
 // pup runner with auto-refresh on 401/403
@@ -48,7 +50,6 @@ interface PupResult {
 interface RunOptions {
 	signal?: AbortSignal;
 	timeoutMs?: number;
-	stdin?: string;
 }
 
 const PUP_BIN = process.env.DD_PUP_BIN || "pup";
@@ -65,7 +66,6 @@ async function runPup(
 	const result = await pi.exec(PUP_BIN, args, {
 		signal: opts.signal,
 		timeout,
-		stdin: opts.stdin,
 	});
 	return {
 		stdout: result.stdout ?? "",
@@ -120,7 +120,7 @@ function shapeOutput(stdout: string): { text: string; parsed?: unknown } {
 	if (!trimmed) return { text: "(empty output)" };
 	try {
 		const parsed = JSON.parse(trimmed);
-		return { text: truncate(JSON.stringify(parsed, null, 2)), parsed };
+		return { text: truncate(JSON.stringify(parsed)), parsed };
 	} catch {
 		return { text: truncate(stdout) };
 	}
@@ -560,7 +560,7 @@ export default function ddPupExtension(pi: ExtensionAPI) {
 				const res = await runPup(pi, ["auth", "login"], { timeoutMs: 300_000 });
 				ctx.ui.notify(
 					res.code === 0 ? "Login complete." : `Login failed (exit ${res.code})`,
-					res.code === 0 ? "success" : "error",
+					res.code === 0 ? "info" : "error",
 				);
 			} else {
 				const res = await runPup(pi, ["auth", choice], { timeoutMs: 30_000 });
