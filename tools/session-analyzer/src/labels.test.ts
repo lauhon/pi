@@ -48,6 +48,12 @@ describe("parseLabels", () => {
 		]);
 	});
 
+	it("reads the worksheet template's null turn and empty level as absent", () => {
+		const { labels, problems } = parseLabels(JSON.stringify([{ ...labelRecord("g.jsonl"), outcome: "good", note: "fine" }, { ...labelRecord("b.jsonl"), outcome: "bad" }]));
+		expect(labels[0]).toEqual({ session: "g.jsonl", outcome: "good", note: "fine" });
+		expect(problems).toEqual(['record 1 (b.jsonl): a bad session needs "earliestSaveTurn"', 'record 1 (b.jsonl): a bad session needs "level"']);
+	});
+
 	it("rejects anything but an array of records", () => {
 		expect(parseLabels("{").problems[0]).toMatch(/^not JSON/);
 		expect(parseLabels("{}").problems).toEqual(["the file must hold an array of records"]);

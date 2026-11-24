@@ -509,8 +509,8 @@ does badly and a browser does well. It reads the JSON contract above, so the UI 
 | 1 | `load.ts`, `cli.ts` with `list <dir>` and `inspect <file>`; dependency and config changes; fixture builder and first fixtures; conformance test against pi's own projection | `npm run analyze -- inspect <file>` prints one row per request point with turn, model, context tokens from `usage`, tool call count. Open questions Q1 to Q5 answered in this spec. Done 2026-10-11; real-file run 2026-11-24. |
 | 2 | `inventory.ts`; `inventory <file> [--turn N]` and `inventory <dir>` | For any session: "what filled the window at turn N" and for a directory: average share by source. First surprises written to the Decisions or a new "Findings" section. Done 2026-10-11 on fixtures. |
 | 3 | `observables.ts`, `rank.ts`; `summary <file>`, `summary <dir>`, `rank <dir>` | Per-turn table has the observables as columns. Directory summary reproduces the August audit's numbers for its period within rounding. Code done 2026-10-11; reproduction run done, every residual is the deleted sub-runs (see "Observables"). |
-| 4 | `reports/session-labels.json` | At least 20 sessions labeled, every bad one with `earliestSaveTurn` and `level`; `labels` checks exactly this. Worksheet and check done 2026-10-13; the labeling is pending. |
-| 5 | A "Decisions" entry in this spec naming the branch taken | Labels cluster read; the cheap fix applied, or the rule heatmap started, or the live checks justified with the replay numbers. |
+| 4 | `reports/session-labels.json` | At least 20 sessions labeled, every bad one with `earliestSaveTurn` and `level`; `labels` checks exactly this. Worksheet and check done 2026-10-13; 23 sessions labeled 2026-11-24. |
+| 5 | A "Decisions" entry in this spec naming the branch taken | Labels cluster read; the cheap fix applied, or the rule heatmap started, or the live checks justified with the replay numbers. Draft D7 proposed 2026-11-24, owner to decide. |
 | 6 | Live adapter extension reading `ctx.sessionManager` and `context`; `/ablate`; web view last | Widget shows step 3 counts live; `/ablate` opens a branch and prints the observable diff. |
 
 Steps 1 to 3 are code against the documented format and run anywhere with fixtures. Steps 2
@@ -539,6 +539,40 @@ onward only become interesting against real files in `sessions/` on the machine 
 - D5 One request point per assistant message on the active branch; forks reported separately.
 - D6 pi's own loader and projection for parsing, pinned to the installed pi version, with a
   conformance test so a pi upgrade that changes projection rules shows up as a failing test.
+- D7 (**Proposed, owner to decide**, 2026-11-24) Step 5 branch: the cheap fixes, no live checks.
+  Labels: 23 sessions, $954 in total (`reports/session-labels.json`). There are 10 good, 12 mixed and 1 bad;
+  all 23 were labeled by a model in one pass and only the bad one was checked by hand.
+
+  | level | sessions | of which bad | session cost |
+  | --- | --- | --- | --- |
+  | prompt | 4 | 1 | $46 |
+  | tooling | 3 | 0 | $109 |
+  | instructions | 2 | 0 | $269 |
+  | process | 2 | 0 | $180 |
+  | structure | 1 | 0 | $35 |
+  | model | 1 | 0 | $9 |
+
+  By level, no row dominates. The cost column is whole-session cost, not detour cost, so it
+  overstates the two large `instructions` sessions. By cause, one cluster is clear: 4 of the 13
+  non-good sessions lost turns to remote prod access (SSH tunnel drops during long exports
+  2026-07-09 and 2026-08-10, herd/jumphost and DB credential failures in two sessions on
+  2026-11-23). The labelers split them between `process` and `tooling`. Prompt
+  ambiguity is the second pattern (4 sessions, 3 of them for less than $15: "the review" meant the PR, an
+  unstated cutoff, a heading asked for and then dropped).
+
+  Proposal:
+  1. Tooling: a skill or script for prod data jobs that checks the tunnel and credentials before it
+     starts and runs long jobs on the jumphost (docker), not over the tunnel. 2026-08-10 shows
+     the difference (turns 6 to 18 over the tunnel, fast after the switch).
+  2. Prompt: one standing guideline, "ask when a reference (the review, the export) has two
+     readings", and no template.
+  3. No live model check. Every detour above was visible to the user when it happened, and the
+     fix was a different next action, not a signal. That fails the decision rule in "Why this shape".
+  4. Measure: relabel the next 20 sessions after 1 and 2 ship, and compare the tooling and prompt rows.
+
+  Caveats: one labeler (Sonnet 5.5) and no second opinion. Save turns for 2026-09-16, 2026-08-13
+  and 2026-11-11 are flagged as judgment calls in the batch notes. Two sessions over $60
+  (2026-09-02, 2026-10-06) are labeled good despite corrections.
 
 ## Open questions (settled against pi 1.1.0 source on 2026-10-11, confirmed on real files 2026-11-24)
 
