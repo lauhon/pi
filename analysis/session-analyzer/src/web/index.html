@@ -167,7 +167,7 @@ const state = {
   att:null, okAt:0, failed:false, open:new Set(), earlier:false, moreDecisions:false,
   ref:null, series:null, sel:null, detail:null, title:"", panel:null, openSources:new Set(), history:false, shown:new Set(),
   steers:JSON.parse(localStorage.getItem("attention.steers") || "{}"), steerState:{}, drafts:{}, msg:{},
-  mem:{ q:"", state:"relevant", repo:"", items:[], version:"", counts:null, readAt:0, skipped:0, expanded:null, undo:null, pick:null, msg:"", summary:null, repos:[] },
+  mem:{ q:"", state:"relevant", repo:"", items:[], version:"", counts:null, readAt:0, skipped:0, expanded:null, undo:null, pick:null, msg:"", summary:null, repos:[], session:null },
   seen:new Set(JSON.parse(localStorage.getItem("attention.seen") || "[]")),
 };
 
@@ -213,9 +213,10 @@ function sessionRow(s) {
   const open = s.actionable ? ` · <span class="amber">${s.actionable} open</span>` : "";
   d.innerHTML = `<div class="l1"><span>${esc(s.project)}${s.name ? ` <span class="dim" style="font-weight:400">· ${esc(clip(s.name, 40))}</span>` : ""}</span><span>${fmtCost(s.cost)}</span></div>
     <div class="l2"><span><span class="st ${s.status}">${STATUS[s.status]}</span>${open}${focus ? " · in focus" : ""}</span><span>started ${fmtAge(s.ageDays)} ago</span></div>
-    <div class="l3"><span>updated ${ago(s.mtime)} ago${s.memoryCount ? ` · <span title="open work-memory items linking this session">${s.memoryCount} memory</span>` : ""}</span>${subs}</div>`;
+    <div class="l3"><span>updated ${ago(s.mtime)} ago${s.memoryCount ? ` · <button class="link" data-mem="1" title="open work-memory items linking this session">${s.memoryCount} memory</button>` : ""}</span>${subs}</div>`;
   const go = ev => {
     if (ev.target.dataset && ev.target.dataset.t) { state.open.has(s.id) ? state.open.delete(s.id) : state.open.add(s.id); renderRail(); return; }
+    if (ev.target.dataset && ev.target.dataset.mem) { openMemory(null, { ref: s.ref, label: s.name ? `${s.project} · ${clip(s.name, 40)}` : s.project }); return; }
     openContext(s);
   };
   d.onclick = go;
@@ -380,14 +381,15 @@ function renderMemoryGlance() {
   }
 }
 
-function openMemory(focusId) {
+function openMemory(focusId, session) {
   const m = state.mem;
   state.ref = null; state.panel = { kind:"memory" };
-  m.pick = null; m.msg = "";
+  m.pick = null; m.msg = ""; m.session = session || null;
   if (focusId) { m.q = focusId; m.state = "open"; m.repo = ""; m.expanded = focusId; }
+  if (session) { m.q = ""; m.state = "open"; m.repo = ""; m.expanded = null; }
   openPanel("Work memory");
   $("panelbody").innerHTML = `<div id="memtool"><input type="text" id="memq" placeholder="Search title, status, repo, links" aria-label="Search work memory">
-    <div class="tabs" id="memtabs"></div><div class="row2"><label class="dim" for="memrepo">Repo</label><select id="memrepo" style="background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px;font-size:14px"></select></div></div>
+    <div id="memsess" class="dim"></div><div class="tabs" id="memtabs"></div><div class="row2"><label class="dim" for="memrepo">Repo</label><select id="memrepo" style="background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px;font-size:14px"></select></div></div>
     <div id="memtoast"></div><div id="memlist" style="margin-top:10px"></div><div id="memfoot" class="claim"></div>`;
   $("memq").value = m.q;
   $("memq").oninput = () => { clearTimeout(m.qt); m.qt = setTimeout(() => { m.q = $("memq").value; loadMemory(); }, 250); };
@@ -400,6 +402,7 @@ async function loadMemory(focusId) {
   try {
     let r = await api(url(m.state));
     if (focusId && !r.items.length) { m.state = "done"; r = await api(url("done")); }
+    if (m.session) r.items = r.items.filter(i => i.sessionLinks.some(l => l.ref === m.session.ref));
     Object.assign(m, { items: r.items, version: r.version, counts: r.counts, readAt: r.readAt, skipped: r.skippedLines, msg: "" });
   } catch (e) { m.msg = "Could not read work memory: " + e.message; }
   if (state.panel && state.panel.kind === "memory") { renderMemTools(); renderMemList(); }
@@ -409,7 +412,10 @@ function renderMemTools() {
   const m = state.mem, tabs = $("memtabs");
   if (!tabs) return;
   tabs.innerHTML = MEM_STATES.map(([k, label]) => `<button data-st="${k}" class="${m.state === k ? "on" : ""}">${label}${m.counts ? " " + m.counts[k] : ""}</button>`).join("");
-  tabs.querySelectorAll("button").forEach(b => b.onclick = () => { m.state = b.dataset.st; m.expanded = null; loadMemory(); });
+  tabs.querySelectorAll("button").forEach(b => b.onclick = () => { m.state = b.dataset.st; m.expanded = null; m.session = null; loadMemory(); });
+  const ses = $("memsess");
+  ses.innerHTML = m.session ? `Linked to ${esc(m.session.label)} <button class="link">Show all</button>` : "";
+  if (m.session) ses.querySelector("button").onclick = () => { m.session = null; loadMemory(); };
   const sel = $("memrepo");
   sel.innerHTML = '<option value="">All repos</option>' + m.repos.map(([cwd, name]) => `<option value="${esc(cwd)}">${esc(name)}</option>`).join("");
   sel.value = m.repo;
@@ -450,7 +456,7 @@ function memRow(it) {
   let html = `<div class="t" ${open ? "" : 'tabindex="0"'} data-t="1">${esc(clip(it.title, open ? 300 : 90))}</div>
     <div class="m">${esc(it.repo || "no repo")} · updated ${age === 0 ? "today" : age + "d ago"}${it.stale ? " · stale" : ""}${it.done ? " · done" : ""}</div>
     <div class="s">${esc(open ? it.status : clip(it.status, 140))}</div>${risk}
-    <div>${(open ? links : links.slice(0, 2)).map(chip).join("")}</div>`;
+    <div>${(open ? links : links.slice(0, 2)).map(chip).join("")}${!open && links.length > 2 ? `<span class="chip dim">+${links.length - 2}</span>` : ""}</div>`;
   if (open) {
     html += `<div class="kv"><span>ID</span><span><code>${esc(it.id)}</code></span><span>Created</span><span>${esc(it.created)}</span><span>Updated</span><span>${esc(it.updated)}</span>
       <span>Keep until</span><span>${esc(it.keepUntil || "not set")}</span><span>Drops on</span><span>${esc(it.prunesOn || "never (kept forever)")}</span></div>
@@ -532,8 +538,9 @@ function openContextRef(ref, title) {
 }
 
 // ── Inspect panel ──
-function openPanel(title) { $("paneltitle").textContent = title; $("panel").classList.add("open"); }
-function closePanel() { $("panel").classList.remove("open"); state.ref = null; state.panel = null; if (state.att) renderRail(); }
+// Only the memory panel survives a reload: it may stay open on the monitor all day, and a server restart reloads the page.
+function openPanel(title) { $("paneltitle").textContent = title; $("panel").classList.add("open"); localStorage.setItem("attention.panel", state.panel && state.panel.kind === "memory" ? "memory" : ""); }
+function closePanel() { $("panel").classList.remove("open"); state.ref = null; state.panel = null; localStorage.removeItem("attention.panel"); if (state.att) renderRail(); }
 
 // Catch detail: the full claim, its source, linked outcomes, and the actions with drafts.
 function openCatch(key, steer) {
@@ -622,7 +629,7 @@ function openContext(s, at) {
     <div class="box" id="chartbox"><div id="head"></div><svg id="chart"></svg></div>
     <div class="box" id="treebox"><svg id="tree"></svg></div>
     <div class="claim" id="excerpt" style="margin-top:10px"></div>
-    <h3>Context by source (estimated tokens; click to expand)</h3><div id="top"></div><div id="legend"></div>`;
+    <h3>Context by source (estimated tokens; click to expand)</h3><div id="srcs"></div><div id="legend"></div>`;
   $("legend").innerHTML = SOURCES.map(x => `<span><i class="sw" style="background:${COLORS[x]}"></i>${x}</span>`).join("");
   renderRail();
   loadSession();
@@ -779,7 +786,7 @@ function renderTree() {
 }
 
 function renderNums() {
-  const d = state.detail, nums = $("nums"), top = $("top");
+  const d = state.detail, nums = $("nums"), top = $("srcs");
   if (!nums) return;
   nums.innerHTML = ""; top.innerHTML = "";
   if (!d) return;
@@ -825,7 +832,7 @@ function connect() {
     if (state.ref && path && state.series && state.series.path === path) await loadSession();
   };
 }
-refresh().catch(() => {}).then(connect);
+refresh().catch(() => {}).then(() => { if (localStorage.getItem("attention.panel") === "memory") openMemory(); }).then(connect);
 refreshMemory();
 setInterval(() => { refresh().catch(() => {}); renderRail(); refreshMemory(); }, 15000);
 </script>
