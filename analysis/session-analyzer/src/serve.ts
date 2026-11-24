@@ -8,15 +8,22 @@
  *   GET /api/sessions?hours=24    sessions changed in the last N hours, newest first
  *   GET /api/session?path=        one row per request: tokens and chars by source
  *   GET /api/request?path=&i=     the segments of request i (default last)
+ *   GET /api/attention?hours=24   sessions, catches, outcomes, verdicts, focused session (attention inbox v1)
+ *   POST /api/steer|verdict|memory  need Host, Origin and the per-start token (header x-attention-token)
  *   GET /events                   Server-Sent Events: {"path"} when a .jsonl changed
  */
+import { execFile } from "node:child_process";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { readdirSync, readFileSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { groupBySource, inventoryRequestPoint } from "./inventory.ts";
+import { appendVerdict, attentionDir, type Verdict } from "./attention.ts";
+import { buildAttention, focusedTitle, listSummaries, matchFocused, writeSteer, writeSubInbox, type Summary } from "./attention-index.ts";
 import { loadSession } from "./load.ts";
+import { applyOps, loadItems, memoryRoot, saveItems } from "../../../extensions/work-memory/store.ts";
 import type { Session } from "./types.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -128,7 +135,7 @@ export interface SessionRow {
 	cost: number;
 }
 
-function jsonlFilesSince(dir: string, cutoffMs: number): { path: string; mtimeMs: number }[] {
+export function jsonlFilesSince(dir: string, cutoffMs: number): { path: string; mtimeMs: number }[] {
 	const found: { path: string; mtimeMs: number }[] = [];
 	const visit = (current: string) => {
 		let names: string[];
@@ -277,9 +284,48 @@ export function requestDetail(dirs: string[], path: string | null | undefined, i
 
 // ── server ─────────────────────────────────────────────────────────────────
 
+/** The cmux calls, injectable so tests need no cmux. */
+export interface Cmux {
+	tree(): Promise<unknown | null>;
+	notify(title: string, body: string): Promise<void>;
+}
+
 export interface ServeOptions {
 	dirs: string[];
 	port: number;
+	/** Defaults to $PI_ATTENTION_DIR or ~/.pi/attention. */
+	attentionDir?: string;
+	/** Defaults to the `cmux` binary on PATH; null disables focus and notifications. */
+	cmux?: Cmux | null;
+}
+
+const MAX_BODY = 16 * 1024;
+const FOCUS_TTL_MS = 3000;
+const LOOKUP_HOURS = 24 * 14;
+
+function run(cmd: string, args: string[]): Promise<string | null> {
+	return new Promise((done) => {
+		execFile(cmd, args, { timeout: 2500, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => done(error ? null : String(stdout)));
+	});
+}
+
+export function realCmux(): Cmux | null {
+	const onPath = (process.env.PATH ?? "").split(":").some((d) => d && existsSync(join(d, "cmux")));
+	if (!onPath) return null;
+	return {
+		async tree() {
+			const out = await run("cmux", ["tree", "--json"]);
+			if (!out) return null;
+			try {
+				return JSON.parse(out);
+			} catch {
+				return null;
+			}
+		},
+		async notify(title, body) {
+			await run("cmux", ["notify", "--title", title, "--body", body]);
+		},
+	};
 }
 
 export interface RunningServer {
@@ -297,13 +343,50 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 
 export function startServer(options: ServeOptions): Promise<RunningServer> {
 	const { dirs } = options;
+	const adir = options.attentionDir ?? attentionDir();
+	const cmux = options.cmux === undefined ? realCmux() : options.cmux;
+	const token = randomBytes(16).toString("hex");
+	const startedAt = Date.now();
+	const seen = new Set<string>();
+	let focusCache: { at: number; title: string | null } | undefined;
 	const clients = new Set<ServerResponse>();
 	const timers = new Map<string, NodeJS.Timeout>();
 	const watchers: FSWatcher[] = [];
 	let port = options.port;
 
-	const broadcast = (path: string) => {
-		for (const client of clients) client.write(`data: ${JSON.stringify({ path })}\n\n`);
+	const broadcast = (path: string, extra: Record<string, unknown> = {}) => {
+		for (const client of clients) client.write(`data: ${JSON.stringify({ path, ...extra })}\n\n`);
+	};
+
+	const recent = (hours: number): Summary[] => {
+		const cutoff = Date.now() - hours * 3_600_000;
+		return listSummaries(dirs.flatMap((dir) => jsonlFilesSince(dir, cutoff)));
+	};
+
+	const focusTitle = async (): Promise<string | null> => {
+		if (!cmux) return null;
+		if (focusCache && Date.now() - focusCache.at < FOCUS_TTL_MS) return focusCache.title;
+		let title: string | null = null;
+		try {
+			title = focusedTitle(await cmux.tree());
+		} catch {
+			title = null;
+		}
+		focusCache = { at: Date.now(), title };
+		return title;
+	};
+
+	/** One cmux notification per catch from a session that is not in focus; existing catches are marked seen first. */
+	const scan = async (first = false): Promise<void> => {
+		const all = recent(24);
+		const fresh = all.flatMap((s) => s.catches.map((c) => ({ s, c, key: `${c.sessionId}:${c.entryId}` }))).filter((x) => !seen.has(x.key));
+		for (const x of fresh) seen.add(x.key);
+		if (first || !cmux || fresh.length === 0) return;
+		const focused = matchFocused(await focusTitle(), all);
+		for (const x of fresh) {
+			if (x.s.id === focused || Date.parse(x.c.timestamp) < startedAt) continue;
+			await cmux.notify(`${x.s.project}: assumption`, x.c.decision).catch(() => {});
+		}
 	};
 	for (const dir of dirs) {
 		try {
@@ -315,6 +398,7 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 					path,
 					setTimeout(() => {
 						timers.delete(path);
+						void scan().catch(() => {});
 						broadcast(path);
 					}, DEBOUNCE_MS),
 				);
@@ -330,18 +414,118 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 	}, KEEPALIVE_MS);
 	keepAlive.unref();
 
-	const handle = (req: IncomingMessage, res: ServerResponse) => {
+	const readBody = (req: IncomingMessage): Promise<unknown> =>
+		new Promise((done, fail) => {
+			const chunks: Buffer[] = [];
+			let size = 0;
+			let tooBig = false;
+			req.on("data", (chunk: Buffer) => {
+				size += chunk.length;
+				if (size > MAX_BODY) {
+					if (!tooBig) fail(new ApiError(413, "body over 16 KB"));
+					tooBig = true;
+					chunks.length = 0;
+					return;
+				}
+				chunks.push(chunk);
+			});
+			req.on("end", () => {
+				if (tooBig) return;
+				try {
+					done(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+				} catch {
+					fail(new ApiError(400, "bad json"));
+				}
+			});
+			req.on("error", fail);
+		});
+
+	const checkPost = (req: IncomingMessage, host: string): void => {
+		if (req.headers.origin !== `http://${host}`) throw new ApiError(403, "bad origin");
+		const sent = Buffer.from(String(req.headers["x-attention-token"] ?? ""));
+		const want = Buffer.from(token);
+		if (sent.length !== want.length || !timingSafeEqual(sent, want)) throw new ApiError(403, "bad token");
+	};
+
+	const field = (body: unknown, key: string, max: number, required = true): string | undefined => {
+		const v = (body as Record<string, unknown> | null)?.[key];
+		if (v === undefined && !required) return undefined;
+		if (typeof v !== "string" || (required && v.trim() === "") || v.length > max) throw new ApiError(400, `bad ${key}`);
+		return v;
+	};
+
+	const post = async (pathname: string, body: unknown): Promise<unknown> => {
+		const known = recent(LOOKUP_HOURS);
+		switch (pathname) {
+			case "/api/steer": {
+				const sessionId = field(body, "sessionId", 200)!;
+				const text = field(body, "text", 8000)!.trim();
+				if (!text) throw new ApiError(400, "bad text");
+				const target = known.find((s) => s.id === sessionId);
+				if (!target) throw new ApiError(404, "unknown session");
+				const file = target.sub ? writeSubInbox(target.sub.runDir, text) : writeSteer(sessionId, text, adir);
+				return { ok: true, file };
+			}
+			case "/api/verdict": {
+				const key = field(body, "catchKey", 300)!;
+				const verdict = field(body, "verdict", 10)!;
+				if (verdict !== "useful" && verdict !== "noise") throw new ApiError(400, "bad verdict");
+				if (!known.some((s) => s.catches.some((c) => `${c.sessionId}:${c.entryId}` === key))) throw new ApiError(404, "unknown catch");
+				appendVerdict(key, verdict as Verdict, adir);
+				return { ok: true };
+			}
+			case "/api/memory": {
+				const key = field(body, "catchKey", 300)!;
+				const title = field(body, "title", 200, false)?.trim();
+				const status = field(body, "status", 500, false)?.trim();
+				let hit: { s: Summary; decision: string } | undefined;
+				for (const s of known) {
+					const c = s.catches.find((x) => `${x.sessionId}:${x.entryId}` === key);
+					if (c) hit = { s, decision: c.decision };
+				}
+				if (!hit) throw new ApiError(404, "unknown catch");
+				const root = memoryRoot();
+				const result = applyOps(
+					loadItems(root),
+					[{ title: title || `Assumption (${hit.s.project}): ${hit.decision}`.slice(0, 200), status: status || "assumption to review" }],
+					Date.now(),
+					{ cwd: hit.s.cwd || undefined, link: hit.s.path },
+				);
+				saveItems(root, result.items);
+				return { ok: true, added: result.added };
+			}
+			default:
+				throw new ApiError(404, "not found");
+		}
+	};
+
+	const handle = async (req: IncomingMessage, res: ServerResponse) => {
 		try {
 			const host = req.headers.host ?? "";
 			if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) throw new ApiError(403, "bad host");
-			if (req.method !== "GET") throw new ApiError(405, "GET only");
 			const url = new URL(req.url ?? "/", "http://localhost");
+			if (req.method === "POST") {
+				checkPost(req, host);
+				if (!["/api/steer", "/api/verdict", "/api/memory"].includes(url.pathname)) throw new ApiError(404, "not found");
+				const result = await post(url.pathname, await readBody(req));
+				broadcast("", { attention: true });
+				return sendJson(res, 200, result);
+			}
+			if (req.method !== "GET") throw new ApiError(405, "GET or POST only");
 			const q = url.searchParams;
 			switch (url.pathname) {
 				case "/": {
 					res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-					res.end(readFileSync(join(here, "web", "index.html")));
+					const html = readFileSync(join(here, "web", "index.html"), "utf8");
+					res.end(html.replace("</head>", () => `<meta name="attention-token" content="${token}">\n</head>`));
 					return;
+				}
+				case "/api/attention": {
+					const hours = Number(q.get("hours") ?? 24);
+					if (!Number.isFinite(hours) || hours <= 0) throw new ApiError(400, "bad hours");
+					const all = recent(hours);
+					const focused = matchFocused(await focusTitle(), all);
+					return sendJson(res, 200, buildAttention(all, hours, focused, Date.now(), adir));
 				}
 				case "/api/sessions": {
 					const hours = Number(q.get("hours") ?? 24);
@@ -378,6 +562,7 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 		server.listen(options.port, "127.0.0.1", () => {
 			const address = server.address();
 			port = typeof address === "object" && address ? address.port : options.port;
+			void scan(true).catch(() => {});
 			resolvePromise({
 				server,
 				port,

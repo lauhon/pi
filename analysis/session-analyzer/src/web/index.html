@@ -2,15 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>pi context</title>
+<title>pi attention</title>
 <style>
 :root { --bg:#0e1116; --panel:#161b22; --line:#2a313c; --fg:#e6edf3; --dim:#8b949e; --accent:#58a6ff; }
 * { box-sizing:border-box; }
 html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:15px/1.35 -apple-system,"Segoe UI",sans-serif; overflow:hidden; }
-#app { display:grid; grid-template-columns:300px 1fr 340px; height:100vh; gap:1px; background:var(--line); }
-#app > div { background:var(--bg); min-height:0; min-width:0; }
-#left,#right { display:flex; flex-direction:column; padding:10px; overflow:hidden; }
-#list { overflow-y:auto; flex:1; }
+#right { display:flex; flex-direction:column; padding:10px; overflow:hidden; }
 .row { padding:7px 8px; border-radius:6px; cursor:pointer; border-left:3px solid transparent; }
 .row:hover { background:var(--panel); }
 .row.sel { background:var(--panel); border-left-color:var(--accent); }
@@ -34,15 +31,53 @@ svg { width:100%; height:100%; display:block; }
 .seg .n { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .seg .v { color:var(--dim); font-variant-numeric:tabular-nums; }
 #legend { display:flex; flex-wrap:wrap; gap:3px 10px; font-size:12px; color:var(--dim); margin-top:auto; padding-top:10px; }
 #empty { padding:40px; color:var(--dim); font-size:18px; }
+
+#app { display:grid; grid-template-columns:480px 1fr; height:100vh; gap:1px; background:var(--line); }
+#app > div { background:var(--bg); min-height:0; min-width:0; }
+#left { padding:14px 10px; display:flex; flex-direction:column; overflow:hidden; }
+#slist { overflow-y:auto; flex:1; }
+.srow { padding:9px 10px; border-radius:6px; cursor:pointer; border-left:3px solid transparent; display:grid; grid-template-columns:1fr auto; gap:2px 10px; }
+.srow:hover { background:var(--panel); }
+.srow.focus { border-left-color:#58a6ff55; background:#58a6ff0d; }
+.srow .p { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.srow .nm { color:var(--dim); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.srow .meta { text-align:right; color:var(--dim); font-size:13px; font-variant-numeric:tabular-nums; }
+.st { font-size:13px; font-weight:600; }
+.st.working { color:#3fb950; } .st.waiting { color:#e3b341; } .st.idle { color:var(--dim); font-weight:400; }
+.subs { margin:0 0 4px 22px; } .subs .srow { padding:5px 10px; font-size:13px; }
+.tg { cursor:pointer; color:var(--dim); font-size:12px; user-select:none; margin-left:6px; }
+#center { padding:18px 24px; overflow-y:auto; }
+#center h1 { margin:0 0 14px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); font-weight:600; display:flex; justify-content:space-between; }
+#nothing { color:var(--dim); font-size:22px; padding:60px 0; text-align:center; }
+.catch { background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; }
+.catch.hot { border-color:#f0883e; border-left-color:#f0883e; background:#f0883e14; box-shadow:0 0 0 1px #f0883e66; }
+.catch .who { display:flex; gap:10px; align-items:center; color:var(--dim); font-size:13px; }
+.catch .who b { color:var(--fg); }
+.badge { padding:1px 8px; border-radius:10px; background:#2a313c; font-size:12px; color:var(--fg); }
+.badge.schema { background:#a371f733; } .badge.scope { background:#58a6ff33; }
+.catch .dec { font-size:22px; line-height:1.3; margin:8px 0; font-weight:600; }
+.alts { color:var(--dim); font-size:14px; margin-bottom:6px; } .est { color:#3fb950; font-size:13px; margin-bottom:8px; }
+.acts { display:flex; gap:8px; margin-top:8px; } .acts button.v { margin-left:auto; } .acts button.sel { border-color:#3fb950; color:#3fb950; } .acts button.sel.noise { border-color:#8b949e; color:#8b949e; }
+.steer { display:none; margin-top:8px; } .steer.open { display:flex; gap:8px; }
+.steer textarea { flex:1; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; min-height:60px; resize:vertical; }
+.out { margin:6px 0 0 18px; padding:4px 10px; border-left:2px solid var(--line); color:var(--dim); font-size:13px; }
+.out b { color:var(--fg); font-weight:600; }
+.msg { color:#f85149; font-size:13px; margin-top:6px; }
+#drill { position:fixed; inset:0; background:var(--bg); display:none; z-index:10; grid-template-columns:1fr 340px; grid-template-rows:auto 1fr; }
+#drill.open { display:grid; }
+#drillbar { grid-column:1 / 3; display:flex; gap:12px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--line); color:var(--dim); }
+#drillbar button { margin-left:auto; }
 </style>
 </head>
 <body>
 <div id="app">
-  <div id="left"><h2>Sessions</h2><div id="list"></div></div>
+  <div id="left"><h2>Sessions · last 24 h</h2><div id="slist"></div></div>
+  <div id="center"><h1><span>Inbox</span><span id="stats"></span></h1><div id="inbox"></div></div>
+</div>
+<div id="drill">
+  <div id="drillbar"><b id="drilltitle"></b><button id="close">Close</button></div>
   <div id="main"><div id="chartbox"><div id="head"></div><svg id="chart"></svg></div><div id="treebox"><svg id="tree"></svg></div></div>
   <div id="right">
-    <button id="follow"></button>
-    <div style="height:12px"></div>
     <div class="nums" id="nums"></div>
     <h2>Largest segments</h2><div id="top"></div>
     <div id="legend"></div>
@@ -66,21 +101,108 @@ const fmtK = n => n >= 1e6 ? (n/1e6).toFixed(2)+"M" : n >= 1e3 ? (n/1e3).toFixed
 const fmtCost = c => "$" + c.toFixed(c >= 10 ? 1 : 2);
 const ago = ms => { const s = (Date.now()-ms)/1000; return s < 90 ? Math.round(s)+"s" : s < 5400 ? Math.round(s/60)+"m" : Math.round(s/3600)+"h"; };
 
-const state = { follow:true, list:[], path:null, series:null, sel:null, detail:null };
+
+const TOKEN = (document.querySelector('meta[name="attention-token"]') || {}).content || "";
+const state = { att:null, path:null, series:null, sel:null, detail:null, open:new Set(), steer:new Set(), msg:{}, cleared:new Set(JSON.parse(localStorage.getItem("cleared") || "[]")) };
+const STATUS = { working:"working", waiting:"waiting for you", idle:"idle" };
+const fmtAge = d => d < 1 ? (d * 24 < 1 ? Math.max(1, Math.round(d * 1440)) + "m" : Math.round(d * 24) + "h") : d.toFixed(1) + "d";
 
 async function api(url) { const r = await fetch(url); if (!r.ok) throw new Error(url + " " + r.status); return r.json(); }
+async function post(url, body) {
+  const r = await fetch(url, { method:"POST", headers:{ "content-type":"application/json", "x-attention-token":TOKEN }, body:JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
 
-async function refreshList() {
-  state.list = await api("/api/sessions?hours=24");
-  if (state.follow && state.list.length) {
-    const newest = state.list[0].path;
-    if (newest !== state.path) { state.path = newest; state.sel = null; await loadSession(); }
+async function refresh() {
+  const att = await api("/api/attention?hours=24");
+  if (att.focused) {
+    for (const c of att.catches) if (c.sessionId === att.focused) state.cleared.add(c.key);
+    localStorage.setItem("cleared", JSON.stringify([...state.cleared].slice(-500)));
   }
-  renderList(); renderFollow();
+  state.att = att;
+  renderSessions(); renderInbox();
+}
+
+function sessionRow(s, sub) {
+  const d = document.createElement("div");
+  d.className = "srow" + (state.att.focused === s.id ? " focus" : "");
+  d.title = s.path;
+  const toggle = !sub && s.subs.length ? `<span class="tg" data-t="1">${state.open.has(s.id) ? "▾" : "▸"} ${s.subs.length} sub</span>` : "";
+  d.innerHTML = `<div class="p">${state.att.focused === s.id ? "● " : ""}${esc(sub ? (s.name || "sub-run") : s.project)}${toggle}</div>
+    <div class="meta"><span class="st ${s.status}">${STATUS[s.status]}</span></div>
+    <div class="nm">${esc(sub ? "" : (s.name || "(unnamed)"))}${s.orphan ? " · sub-run" : ""}</div>
+    <div class="meta">${fmtAge(s.ageDays)} · ${fmtCost(s.cost)}</div>`;
+  d.onclick = ev => {
+    if (ev.target.dataset.t) { state.open.has(s.id) ? state.open.delete(s.id) : state.open.add(s.id); renderSessions(); return; }
+    openDrill(s);
+  };
+  return d;
+}
+
+function renderSessions() {
+  const el = $("slist"); el.innerHTML = "";
+  const list = state.att.sessions;
+  if (!list.length) { el.innerHTML = '<div id="empty">No session changed in the last 24 hours.</div>'; return; }
+  for (const s of list) {
+    el.appendChild(sessionRow(s, false));
+    if (state.open.has(s.id) && s.subs.length) {
+      const wrap = document.createElement("div"); wrap.className = "subs";
+      for (const x of s.subs) wrap.appendChild(sessionRow(x, true));
+      el.appendChild(wrap);
+    }
+  }
+}
+
+function isHot(c) { return state.att.focused !== c.sessionId && !c.verdict && !state.cleared.has(c.key); }
+
+function outcomeText(o) {
+  if (o.type === "esc") return `<b>Esc</b> then: ${esc(o.correction || "")}`;
+  if (o.type === "steer") return `<b>Steered</b>: ${esc(o.correction || "")}`;
+  return `<b>Rewind</b>: dropped ${o.requests} request${o.requests === 1 ? "" : "s"}, ${fmtK(o.droppedContextTokens || 0)} context tokens`;
+}
+
+function renderInbox() {
+  const el = $("inbox"), a = state.att;
+  const st = a.stats;
+  $("stats").textContent = `${st.catches} catches · ${st.useful} useful · ${st.noise} noise · ${st.esc} esc · ${st.rewind} rewind`;
+  if (document.activeElement && document.activeElement.tagName === "TEXTAREA") return;
+  el.innerHTML = "";
+  if (!a.catches.length) { el.innerHTML = '<div id="nothing">Nothing to look at.</div>'; return; }
+  for (const c of a.catches) {
+    const d = document.createElement("div");
+    d.className = "catch" + (isHot(c) ? " hot" : "");
+    d.id = "c-" + c.key;
+    const sav = c.saving ? `<div class="est">Estimate: ${fmtCost(c.saving.cost)} and ${fmtK(c.saving.tokens)} tokens of work after the assumption, before ${c.saving.via === "esc" ? "an Esc correction" : c.saving.via === "rewind" ? "a rewind" : "your steer"}.</div>` : "";
+    const alts = c.alternatives.length ? `<div class="alts">Instead: ${c.alternatives.map(esc).join(" · ")}${c.basis ? ` — ${esc(c.basis)}` : ""}</div>` : (c.basis ? `<div class="alts">${esc(c.basis)}</div>` : "");
+    const outs = a.outcomes.filter(o => o.catchKey === c.key).map(o => `<div class="out">${outcomeText(o)} <span>· ${ago(Date.parse(o.timestamp))} ago</span></div>`).join("");
+    d.innerHTML = `<div class="who"><b>${esc(c.project)}</b><span>${esc(c.name || "")}</span><span class="badge ${c.kind}">${c.kind}</span><span style="margin-left:auto">${ago(Date.parse(c.timestamp))} ago</span></div>
+      <div class="dec">${esc(c.decision)}</div>${alts}${sav}
+      <div class="acts"><button data-a="steer">Steer</button><button data-a="mem">Save to memory</button>
+        <button class="v ${c.verdict === "useful" ? "sel" : ""}" data-a="useful">Useful</button><button class="${c.verdict === "noise" ? "sel noise" : ""}" data-a="noise">Noise</button></div>
+      <div class="steer ${state.steer.has(c.key) ? "open" : ""}"><textarea placeholder="Message to this session (Ctrl+Enter sends)"></textarea><button data-a="send">Send</button></div>
+      <div class="msg">${esc(state.msg[c.key] || "")}</div>${outs}`;
+    const ta = d.querySelector("textarea");
+    const act = async a => {
+      try {
+        if (a === "steer") { state.steer.has(c.key) ? state.steer.delete(c.key) : state.steer.add(c.key); renderInbox(); const t = $("c-" + c.key).querySelector("textarea"); if (t) t.focus(); return; }
+        if (a === "send") {
+          if (!ta.value.trim()) return;
+          await post("/api/steer", { sessionId: c.sessionId, text: ta.value }); state.steer.delete(c.key); state.msg[c.key] = "Sent.";
+        } else if (a === "mem") { await post("/api/memory", { catchKey: c.key }); state.msg[c.key] = "Saved to work memory."; }
+        else { await post("/api/verdict", { catchKey: c.key, verdict: a }); state.cleared.add(c.key); }
+        await refresh();
+      } catch (e) { state.msg[c.key] = "Failed: " + e.message; renderInbox(); }
+    };
+    d.querySelectorAll("button").forEach(b => b.onclick = () => act(b.dataset.a));
+    ta.onkeydown = ev => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) act("send"); };
+    el.appendChild(d);
+  }
 }
 
 async function loadSession() {
-  if (!state.path) { state.series = null; state.detail = null; render(); return; }
+  if (!state.path) return;
   const path = state.path;
   try {
     const series = await api("/api/session?path=" + encodeURIComponent(path));
@@ -99,32 +221,15 @@ async function loadDetail() {
   try { state.detail = await api("/api/request?path=" + encodeURIComponent(state.path) + "&i=" + i); } catch { state.detail = null; }
 }
 
-async function select(i) {
-  state.sel = i;
-  await loadDetail();
-  render();
-}
+async function select(i) { state.sel = i; await loadDetail(); render(); }
 
-function renderFollow() {
-  const b = $("follow");
-  b.textContent = state.follow ? "Following newest session" : "Pinned. Click to follow newest";
-  b.className = state.follow ? "on" : "";
+function openDrill(s) {
+  state.path = s.path; state.sel = null; state.series = null; state.detail = null;
+  $("drilltitle").textContent = s.project + (s.name ? " · " + s.name : "");
+  $("drill").classList.add("open");
+  loadSession();
 }
-
-function renderList() {
-  const el = $("list");
-  el.innerHTML = "";
-  if (!state.list.length) { el.innerHTML = '<div id="empty">No session changed in the last 24 hours.</div>'; return; }
-  for (const s of state.list) {
-    const d = document.createElement("div");
-    d.className = "row" + (s.path === state.path ? " sel" : "");
-    d.title = s.path;
-    d.innerHTML = `<div class="t"><span>${s.live ? '<i class="dot"></i>' : ""}${esc(s.project)}</span><span>${fmtK(s.contextTokens)}</span></div>
-      <div class="s"><span>${esc(s.name || (s.model || "").replace(/^claude-/, ""))}</span><span>${fmtCost(s.cost)} · ${s.live ? '<span class="live">live</span>' : ago(s.mtime)}</span></div>`;
-    d.onclick = () => { state.follow = false; state.path = s.path; state.sel = null; loadSession(); renderList(); renderFollow(); };
-    el.appendChild(d);
-  }
-}
+function closeDrill() { $("drill").classList.remove("open"); state.path = null; }
 
 function svg(tag, attrs, parent) {
   const e = document.createElementNS(NS, tag);
@@ -277,21 +382,22 @@ function renderLegend() {
 
 function render() { renderChart(); renderTree(); renderRight(); }
 
-$("follow").onclick = () => { state.follow = true; state.sel = null; refreshList(); };
-addEventListener("resize", render);
+
+$("close").onclick = closeDrill;
+addEventListener("keydown", ev => { if (ev.key === "Escape" && $("drill").classList.contains("open")) closeDrill(); });
+addEventListener("resize", () => { if (state.path) render(); });
 renderLegend();
 
 function connect() {
   const es = new EventSource("/events");
   es.onmessage = async ev => {
     const { path } = JSON.parse(ev.data);
-    const before = state.path;
-    await refreshList().catch(() => {});
-    if (path === state.path && before === state.path) await loadSession();
+    await refresh().catch(() => {});
+    if (path && path === state.path) await loadSession();
   };
 }
-refreshList().then(connect);
-setInterval(() => refreshList().catch(() => {}), 30000);
+refresh().catch(() => {}).then(connect);
+setInterval(() => refresh().catch(() => {}), 15000);
 </script>
 </body>
 </html>

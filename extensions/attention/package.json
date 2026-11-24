@@ -1,0 +1,9 @@
+{
+  "name": "attention",
+  "version": "0.1.0",
+  "description": "pi extension: assumption tool and a steer inbox fed by the attention view",
+  "private": true,
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}

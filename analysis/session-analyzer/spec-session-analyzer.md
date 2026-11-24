@@ -629,3 +629,27 @@ confirms or corrects each answer.
   for a listed location is `tool_result` with label `skill:<name>`; a user message starting with
   `<skill name=` is `user` with label `skill:<name>`. Real files: a 2026-11-23 session shows
   two model-initiated loads (`read` of `skills/subagents/SKILL.md` and `skills/show-me/SKILL.md`).
+
+## Attention inbox (v1)
+
+`npm run analyze -- serve` now opens on an inbox of catches instead of the chart. Source: `/tmp/interview/brief.md`, "Smallest first version". The old chart and treemap open when you click a session row.
+
+**Producers**
+- `extensions/attention/index.ts`: tool `assumption` (`kind` scope|schema|other, `decision` up to 200 chars, `alternatives?`, `basis?`). It returns "Noted; continue unless the user steers." at once. Its `promptGuidelines` say when to call it (scope or DB schema decided more concretely than the user's words); AGENTS.md is untouched.
+- `extensions/attention/inbox.ts`: watches `$PI_ATTENTION_DIR/steer/<sessionId>/*.md` (default `~/.pi/attention`), sends each in name order as `[from attention view] <text>` (plain prompt when idle, `steer` while streaming, a lost race retries as steer), then renames to `.md.sent`, or `.md.rejected` plus `.md.reason.txt`.
+- `src/attention.ts`: reads session files only. Catches are `assumption` calls (key `sessionId:entryId`). Outcomes: `esc` (aborted request then a user message), `rewind` (abandoned `/tree` branch: requests, context tokens dropped = peak context of the branch minus context at the fork), `steer` (a message with the view prefix). Each links to the nearest earlier catch of the same session within 3 turns. Saving estimate = input + output + cache-write tokens and cost of the requests between the catch and the first linked outcome (plus the abandoned branch for a rewind). It is an estimate of work that may have been wasted. Status: `working` (last message is a user message, tool result or tool call, file changed within 3 min), `waiting` (last assistant message has no tool call, or the work shape stalled 3 to 30 min), `idle` (no change for 30 min). Catches inside abandoned branches are not seen.
+- Sub-runs: a `~/.pi/pi-sub-runs/<run>/parent` file holds the parent session id; the run nests under it, named by the run dir.
+
+**Endpoints** (`src/serve.ts`, `src/attention-index.ts`)
+- `GET /api/attention?hours=24`: sessions with nested sub-runs, catches and outcomes newest first with verdicts, `focused` (session id from `cmux tree --json`, at most every 3 s; title "π - <name> - <project>" or "π - <project>"), counts.
+- `POST /api/steer` {sessionId, text}: main session -> `$PI_ATTENTION_DIR/steer/<id>/<timestamp>-<n>.md`; sub-run -> `<run>/inbox/NNNNNN.md` with the next sequence as `sub resume` picks it.
+- `POST /api/verdict` {catchKey, verdict useful|noise}: appends to `$PI_ATTENTION_DIR/verdicts.jsonl` (`{catchKey, verdict, at}`; last line wins).
+- `POST /api/memory` {catchKey, title?, status?}: new work-memory item (`WORK_MEMORY_DIR`) with the session cwd and a link to the session file.
+- POSTs need Host 127.0.0.1/localhost, `Origin` equal to the server origin, and the per-start token (injected into the page as a meta tag, sent as `x-attention-token`); otherwise 403. Body limit 16 KB (413). `sessionId` and `catchKey` must belong to a session of the last 14 days.
+- `cmux notify` runs once per new catch from a non-focused session, started from the file watcher.
+
+**One-week check**
+1. Number of catches (`stats.catches`, or `verdicts.jsonl` plus the catch list).
+2. Share marked useful: useful / (useful + noise). Unmarked catches count as neither.
+3. `esc` and `rewind` per session, for sessions with the tool loaded vs the week before (from session files; the outcome extractor runs on old files too).
+Add the pre-send check and the watcher only if the useful share holds up.
