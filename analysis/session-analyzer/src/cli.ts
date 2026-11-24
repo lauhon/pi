@@ -12,6 +12,7 @@
  *   label <file>               the labeling worksheet: evidence, one block per turn, the record to fill
  *   labels <json> [<dir>...]   check reports/session-labels.json; with dirs, the unlabeled sessions
  *   memory [<dir>...]          one row per work item (sessions, turns, cost, dates, open/done); default dir sessions
+ *   serve [--port n] [<dir>...]  live web view of the context window (keeps running); default dirs sessions, ~/.pi/pi-sub-runs
  *
  * Output is a terminal table by default, or JSON with --json.
  */
@@ -25,6 +26,7 @@ import { directorySummary, formatFollowUps, sessionSummary, type ModelStats, typ
 import { indexMemory, loadMemory, memoryForSession, memoryPath, workItemRows, type MemoryIndex, type SessionMemory } from "./memory.ts";
 import { rankSessions } from "./rank.ts";
 import { fmtCost, fmtDate, fmtDuration, fmtInt, fmtPct, fmtTokens, renderTable, sessionJson, shortModel, toJson, type Row } from "./report.ts";
+import { DEFAULT_PORT, defaultDirs, startServer } from "./serve.ts";
 import { sanitizeJsonl } from "./sanitize.ts";
 import type { RequestPoint, Session } from "./types.ts";
 import { sliceSince } from "./window.ts";
@@ -43,6 +45,7 @@ const USAGE = `usage: npm run analyze -- <subcommand> [args] [--json]
   label <file>                 the labeling worksheet for one session (step 4)
   labels <json> [<dir>...]     check the labels file; with dirs, list the unlabeled sessions by rank and cost
   memory [<dir>...]            one row per work item by cost, plus the sessions no item links (default dir: sessions)
+  serve [--port <n>] [<dir>...] live web view on 127.0.0.1 (default port 4317; dirs sessions and ~/.pi/pi-sub-runs)
 
 options: --json  --model <substring of the id; claude-opus-5-5 is claude-opus-5.5>
          --exclude <path substring>  --limit <n>
@@ -87,6 +90,7 @@ export function run(argv: string[]): CliResult {
 				exclude: { type: "string" },
 				limit: { type: "string" },
 				memory: { type: "string" },
+				port: { type: "string" },
 			},
 			allowPositionals: true,
 		});
@@ -130,6 +134,8 @@ export function run(argv: string[]): CliResult {
 				);
 			case "memory":
 				return memory(positionals.length > 0 ? requirePaths(positionals, "memory [<dir>...]") : [requirePath("sessions", "memory [<dir>...]")], options);
+			case "serve":
+				return { stdout: "", stderr: "serve keeps running; start it from the command line\n", code: 2 };
 			case undefined:
 			case "help":
 			case "--help":
@@ -1017,8 +1023,37 @@ function sanitize(file: string, options: CliOptions): CliResult {
 
 // ── entry point ────────────────────────────────────────────────────────────
 
+/** Like `run`, but `serve` stays pending until the server closes (SIGINT or SIGTERM). */
+export async function runAsync(argv: string[]): Promise<CliResult> {
+	if (!argv.includes("serve")) return run(argv);
+	let parsed;
+	try {
+		parsed = parseArgs({ args: argv, options: { port: { type: "string" } }, allowPositionals: true });
+	} catch (error) {
+		return { stdout: "", stderr: `${(error as Error).message}\n${USAGE}`, code: 2 };
+	}
+	const [command, ...dirs] = parsed.positionals;
+	if (command !== "serve") return run(argv);
+	try {
+		const port = optionalInt(parsed.values.port) ?? DEFAULT_PORT;
+		const served = (dirs.length > 0 ? dirs : defaultDirs()).map((dir) => resolve(dir));
+		const existing = served.filter((dir) => existsSync(dir));
+		if (existing.length === 0) throw new Error(`no such directory: ${served.join(", ")}`);
+		const running = await startServer({ dirs: existing, port });
+		process.stdout.write(`serving ${existing.join(", ")}\n${running.url}\n`);
+		await new Promise<void>((done) => {
+			const stop = () => void running.close().then(done);
+			process.once("SIGINT", stop);
+			process.once("SIGTERM", stop);
+		});
+		return { stdout: "", stderr: "", code: 0 };
+	} catch (error) {
+		return { stdout: "", stderr: `${(error as Error).message}\n`, code: 1 };
+	}
+}
+
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
-	const result = run(process.argv.slice(2));
+	const result = await runAsync(process.argv.slice(2));
 	if (result.stdout) process.stdout.write(result.stdout);
 	if (result.stderr) process.stderr.write(`${result.stderr}${result.stderr.endsWith("\n") ? "" : "\n"}`);
 	process.exitCode = result.code;

@@ -518,6 +518,13 @@ With API-only models there is no attention to read. Causal answers come from out
 The context treemap plus click-to-ablate is the one feature in this whole plan that a terminal
 does badly and a browser does well. It reads the JSON contract above, so the UI choice can wait.
 
+Web view, started (step 6): `npm run analyze -- serve [--port 4317] [<dir>...]` runs a local server
+(`src/serve.ts`, Node built-ins, 127.0.0.1 only; default dirs `sessions` and `~/.pi/pi-sub-runs`)
+with one page (`src/web/index.html`): session list, stacked area chart of context tokens by source,
+treemap of one request, header numbers. Endpoints: `/api/sessions?hours=`, `/api/session?path=`,
+`/api/request?path=&i=`, and `/events` (Server-Sent Events, debounced file changes). Every `path`
+must lie inside a served directory. Not done: click-to-ablate, an offline `view <file>` export.
+
 ## Work breakdown
 
 | Step | Deliverable | Done when |
