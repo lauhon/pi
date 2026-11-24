@@ -10,6 +10,6 @@
     "allowImportingTsExtensions": true,
     "types": ["vitest/globals"]
   },
-  "include": ["extensions/**/*.ts", "tools/**/*.ts"],
+  "include": ["extensions/**/*.ts", "analysis/**/*.ts"],
   "exclude": ["node_modules"]
 }
