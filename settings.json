@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "1.5.2",
+  "lastChangelogVersion": "1.6.0",
   "defaultProvider": "github-copilot",
   "defaultModel": "claude-opus-5.5",
   "defaultThinkingLevel": "medium",
@@ -13,8 +13,7 @@
   "followUpMode": "one-at-a-time",
   "packages": [
     "npm:@benvargas/pi-claude-code-use@2.2.1",
-    "npm:pi-web-access@0.44.0",
-    "npm:@hypabolic/pi-hypa@1.2.0"
+    "npm:pi-web-access@0.44.0"
   ],
   "theme": "dark",
   "defaultTools": [
