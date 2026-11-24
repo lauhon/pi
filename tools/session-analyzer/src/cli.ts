@@ -11,6 +11,7 @@
  *   rank <dir>...              sessions by bad-signal score, for the labeling pass
  *   label <file>               the labeling worksheet: evidence, one block per turn, the record to fill
  *   labels <json> [<dir>...]   check reports/session-labels.json; with dirs, the unlabeled sessions
+ *   memory [<dir>...]          one row per work item (sessions, turns, cost, dates, open/done); default dir sessions
  *
  * Output is a terminal table by default, or JSON with --json.
  */
@@ -21,6 +22,7 @@ import { inventoryDirectory, inventoryRequestPoint, inventorySession, type Reque
 import { ENDINGS, EXCERPT_CHARS, LEVELS, excerpt, labelEvidence, labelRecord, labelReport, labelTurns, parseLabels, turnFlags, type LabelEvidence, type LabelTurn } from "./labels.ts";
 import { findSessionFiles, loadSession, replaySystemMessages } from "./load.ts";
 import { directorySummary, formatFollowUps, sessionSummary, type ModelStats, type SessionSummary, type TurnObservables } from "./observables.ts";
+import { indexMemory, loadMemory, memoryForSession, memoryPath, workItemRows, type MemoryIndex, type SessionMemory } from "./memory.ts";
 import { rankSessions } from "./rank.ts";
 import { fmtCost, fmtDate, fmtDuration, fmtInt, fmtPct, fmtTokens, renderTable, sessionJson, shortModel, toJson, type Row } from "./report.ts";
 import { sanitizeJsonl } from "./sanitize.ts";
@@ -40,11 +42,14 @@ const USAGE = `usage: npm run analyze -- <subcommand> [args] [--json]
   rank <dir>...                sessions by bad-signal score, highest first
   label <file>                 the labeling worksheet for one session (step 4)
   labels <json> [<dir>...]     check the labels file; with dirs, list the unlabeled sessions by rank and cost
+  memory [<dir>...]            one row per work item by cost, plus the sessions no item links (default dir: sessions)
 
 options: --json  --model <substring of the id; claude-opus-5-5 is claude-opus-5.5>
          --exclude <path substring>  --limit <n>
          --until <iso>  each session as it was at that time (the file truncated there)
          --since <iso>  only requests at or after that time
+         --memory <path>  work-memory items file (default $WORK_MEMORY_DIR/items.jsonl or ~/.work-memory/items.jsonl;
+                          label, labels, memory; a missing file means no memory)
 `;
 
 export interface CliOptions {
@@ -57,6 +62,7 @@ export interface CliOptions {
 	until?: string;
 	exclude?: string;
 	limit?: number;
+	memory?: string;
 }
 
 export interface CliResult {
@@ -80,6 +86,7 @@ export function run(argv: string[]): CliResult {
 				until: { type: "string" },
 				exclude: { type: "string" },
 				limit: { type: "string" },
+				memory: { type: "string" },
 			},
 			allowPositionals: true,
 		});
@@ -98,6 +105,7 @@ export function run(argv: string[]): CliResult {
 			until: parsed.values.until,
 			exclude: parsed.values.exclude,
 			limit: optionalInt(parsed.values.limit),
+			memory: parsed.values.memory,
 		};
 		switch (command) {
 			case "list":
@@ -120,6 +128,8 @@ export function run(argv: string[]): CliResult {
 					positionals.slice(1).map((root) => requirePath(root, "labels <json> [<dir>...]")),
 					options,
 				);
+			case "memory":
+				return memory(positionals.length > 0 ? requirePaths(positionals, "memory [<dir>...]") : [requirePath("sessions", "memory [<dir>...]")], options);
 			case undefined:
 			case "help":
 			case "--help":
@@ -777,6 +787,7 @@ function label(file: string, options: CliOptions): CliResult {
 	const turns = labelTurns(session, result.turnObservables);
 	const next = nextSessionInDirectory(file, session);
 	const record = labelRecord(file);
+	const workMemory = memoryForSession(loadIndex(options), file);
 	if (options.json) {
 		const header = {
 			path: result.path,
@@ -793,7 +804,7 @@ function label(file: string, options: CliOptions): CliResult {
 			rewinds: result.rewinds,
 			modelMix: result.modelMix,
 		};
-		return { stdout: `${toJson({ session: header, evidence, next: next ?? null, turns, findings: result.findings, record })}\n`, stderr: "", code: 0 };
+		return { stdout: `${toJson({ session: header, evidence, next: next ?? null, memory: workMemory, turns, findings: result.findings, record })}\n`, stderr: "", code: 0 };
 	}
 	const lines = [
 		`session ${session.id}  ${file}${session.parentSession ? `  parent ${session.parentSession}` : ""}`,
@@ -802,6 +813,7 @@ function label(file: string, options: CliOptions): CliResult {
 		next
 			? `next session in this directory: ${basename(next.path)}, ${fmtDuration(Math.max(0, next.gapMs))} after this one ended, ${next.turns} turns, ${fmtCost(next.cost)}: "${next.firstUser}"`
 			: "next session in this directory: none",
+		`work memory: ${memoryLine(workMemory)}`,
 		"",
 	];
 	for (const turn of turns) lines.push(...turnBlock(turn));
@@ -812,6 +824,17 @@ function label(file: string, options: CliOptions): CliResult {
 	}
 	lines.push(`record (outcome good, bad or mixed; level ${LEVELS.join(", ")}):`, JSON.stringify(record));
 	return { stdout: `${lines.join("\n")}\n`, stderr: "", code: 0 };
+}
+
+function loadIndex(options: CliOptions): MemoryIndex {
+	return indexMemory(loadMemory(memoryPath(options.memory)));
+}
+
+function memoryLine(memory: SessionMemory[]): string {
+	if (memory.length === 0) return "none";
+	return memory
+		.map((item) => `${item.id} [${item.done ? "done" : "open"}] ${item.title}: ${item.status} (+${item.otherSessions} other sessions)`)
+		.join("; ");
 }
 
 function evidenceLine(evidence: LabelEvidence): string {
@@ -872,13 +895,15 @@ function labels(file: string, roots: string[], options: CliOptions): CliResult {
 	const byRank = summaries ? rankSessions(summaries).filter((row) => !labeled.has(resolve(row.path))).slice(0, limit) : [];
 	const byCost = [...unlabeled].sort((a, b) => b.cost - a.cost || a.path.localeCompare(b.path)).slice(0, limit);
 	const code = report.problems.length > 0 ? 1 : 0;
+	const index = loadIndex(options);
+	const itemIds = (path: string) => memoryForSession(index, path).map((item) => item.id);
 	if (options.json) {
 		const lists = summaries
 			? {
 					sessions: summaries.length,
 					unlabeled: unlabeled.length,
-					byRank: byRank.map((row) => ({ path: row.path, score: row.score, cost: row.summary.cost, requests: row.summary.requests })),
-					byCost: byCost.map((summary) => ({ path: summary.path, cost: summary.cost, requests: summary.requests, peakContextTokens: summary.peakContextTokens })),
+					byRank: byRank.map((row) => ({ path: row.path, score: row.score, cost: row.summary.cost, requests: row.summary.requests, items: itemIds(row.path) })),
+					byCost: byCost.map((summary) => ({ path: summary.path, cost: summary.cost, requests: summary.requests, peakContextTokens: summary.peakContextTokens, items: itemIds(summary.path) })),
 				}
 			: {};
 		return { stdout: `${toJson({ file, report, labels: parsed.labels, ...lists })}\n`, stderr: warnings.join("\n"), code };
@@ -919,9 +944,10 @@ function labels(file: string, roots: string[], options: CliOptions): CliResult {
 						{ key: "score", label: "score", align: "right" },
 						{ key: "cost", label: "cost", align: "right" },
 						{ key: "requests", label: "req", align: "right" },
+						{ key: "item", label: "item", max: 40 },
 						{ key: "path", label: "session", max: 90 },
 					],
-					byRank.map((row) => ({ score: row.score.toFixed(2), cost: fmtCost(row.summary.cost), requests: row.summary.requests, path: row.path })),
+					byRank.map((row) => ({ score: row.score.toFixed(2), cost: fmtCost(row.summary.cost), requests: row.summary.requests, item: itemIds(row.path).join(","), path: row.path })),
 				),
 			);
 		}
@@ -934,14 +960,50 @@ function labels(file: string, roots: string[], options: CliOptions): CliResult {
 						{ key: "cost", label: "cost", align: "right" },
 						{ key: "requests", label: "req", align: "right" },
 						{ key: "peakContextTokens", label: "peak ctx", align: "right" },
+						{ key: "item", label: "item", max: 40 },
 						{ key: "path", label: "session", max: 90 },
 					],
-					byCost.map((summary) => ({ cost: fmtCost(summary.cost), requests: summary.requests, peakContextTokens: fmtTokens(summary.peakContextTokens), path: summary.path })),
+					byCost.map((summary) => ({ cost: fmtCost(summary.cost), requests: summary.requests, peakContextTokens: fmtTokens(summary.peakContextTokens), item: itemIds(summary.path).join(","), path: summary.path })),
 				),
 			);
 		}
 	}
 	return { stdout: `${lines.join("\n")}\n`, stderr: warnings.join("\n"), code };
+}
+
+// ── memory ─────────────────────────────────────────────────────────────────
+
+function memory(roots: string[], options: CliOptions): CliResult {
+	const { summaries, warnings } = loadSummaries(roots, options);
+	const items = loadMemory(memoryPath(options.memory));
+	const all = workItemRows(items, summaries);
+	const unlinked = all[all.length - 1];
+	const rows = [...all.slice(0, -1).slice(0, options.limit ?? 30), unlinked];
+	if (options.json) return { stdout: `${toJson({ items: items.length, sessions: summaries.length, rows })}\n`, stderr: warnings.join("\n"), code: 0 };
+	const table = renderTable(
+		[
+			{ key: "sessions", label: "sessions", align: "right" },
+			{ key: "turns", label: "turns", align: "right" },
+			{ key: "requests", label: "req", align: "right" },
+			{ key: "cost", label: "cost", align: "right" },
+			{ key: "first", label: "first" },
+			{ key: "last", label: "last" },
+			{ key: "state", label: "state" },
+			{ key: "title", label: "item", max: 70 },
+		],
+		rows.map((row) => ({
+			sessions: row.sessions,
+			turns: row.turns,
+			requests: row.requests,
+			cost: fmtCost(row.cost),
+			first: row.firstSession ? fmtDate(row.firstSession) : "",
+			last: row.lastSession ? fmtDate(row.lastSession) : "",
+			state: row.done === undefined ? "" : row.done ? "done" : "open",
+			title: row.id ? `${row.id}: ${row.title}` : row.title,
+		})),
+	);
+	const footer = `${items.length} work items, ${summaries.length} sessions; ${all.length - 1 - (rows.length - 1)} items not shown`;
+	return { stdout: `${table}\n${footer}\n`, stderr: warnings.join("\n"), code: 0 };
 }
 
 // ── sanitize ───────────────────────────────────────────────────────────────
