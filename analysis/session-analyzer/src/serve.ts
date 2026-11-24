@@ -346,6 +346,8 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 	const adir = options.attentionDir ?? attentionDir();
 	const cmux = options.cmux === undefined ? realCmux() : options.cmux;
 	const token = randomBytes(16).toString("hex");
+	// Public id of this server start; pages compare it to notice a restart and reload for the new token.
+	const boot = randomBytes(8).toString("hex");
 	const startedAt = Date.now();
 	const seen = new Set<string>();
 	let focusCache: { at: number; title: string | null } | undefined;
@@ -517,7 +519,7 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 				case "/": {
 					res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
 					const html = readFileSync(join(here, "web", "index.html"), "utf8");
-					res.end(html.replace("</head>", () => `<meta name="attention-token" content="${token}">\n</head>`));
+					res.end(html.replace("</head>", () => `<meta name="attention-token" content="${token}">\n<meta name="attention-boot" content="${boot}">\n</head>`));
 					return;
 				}
 				case "/api/attention": {
@@ -542,7 +544,7 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 				}
 				case "/events": {
 					res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
-					res.write(": connected\n\n");
+					res.write(`event: boot\ndata: ${boot}\n\n`);
 					clients.add(res);
 					req.on("close", () => clients.delete(res));
 					return;

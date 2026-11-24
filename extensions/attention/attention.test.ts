@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import register, { NOTED, Params } from "./index.ts";
 import { PREFIX, startInbox, type Inbox } from "./inbox.ts";
+import { ensureServer } from "./server.ts";
 
 const dirs: string[] = [];
 const inboxes: Inbox[] = [];
@@ -11,6 +12,7 @@ afterEach(() => {
 	for (const i of inboxes.splice(0)) i.stop();
 	for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 	delete process.env.PI_ATTENTION_DIR;
+	delete process.env.PI_ATTENTION_SERVE;
 });
 const tmp = () => {
 	const d = mkdtempSync(join(tmpdir(), "attn-"));
@@ -98,11 +100,33 @@ describe("steer inbox", () => {
 	it("wires session_start and session_shutdown", async () => {
 		const root = tmp();
 		process.env.PI_ATTENTION_DIR = root;
+		process.env.PI_ATTENTION_SERVE = "0";
 		const handlers: Record<string, any> = {};
 		register({ registerTool() {}, on: (e: string, h: any) => (handlers[e] = h), sendUserMessage() {} } as any);
 		await handlers.session_start({}, { isIdle: () => true, sessionManager: { getSessionId: () => "abc" } });
 		expect(existsSync(join(root, "steer", "abc"))).toBe(true);
 		await handlers.session_shutdown({});
 		mkdirSync(join(root, "x"), { recursive: true });
+	});
+});
+
+describe("ensureServer", () => {
+	it("starts a server only when nothing answers on the port", async () => {
+		const logDir = mkdtempSync(join(tmpdir(), "attn-serve-"));
+		const starts: Array<[string, number, string]> = [];
+		const start = (root: string, port: number, log: string) => void starts.push([root, port, log]);
+		expect(await ensureServer({ port: 4999, root: "/r", logDir, probe: async () => true, start })).toBe("running");
+		expect(starts).toEqual([]);
+		expect(await ensureServer({ port: 4999, root: "/r", logDir, probe: async () => false, start })).toBe("started");
+		expect(starts).toEqual([["/r", 4999, join(logDir, "serve.log")]]);
+		rmSync(logDir, { recursive: true, force: true });
+	});
+
+	it("does nothing when PI_ATTENTION_SERVE=0", async () => {
+		process.env.PI_ATTENTION_SERVE = "0";
+		const start = () => {
+			throw new Error("must not start");
+		};
+		expect(await ensureServer({ probe: async () => false, start })).toBe("disabled");
 	});
 });

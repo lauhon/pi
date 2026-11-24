@@ -6,6 +6,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { attentionDir, startInbox, type Inbox } from "./inbox.ts";
+import { ensureServer } from "./server.ts";
 
 export const Params = Type.Object({
 	kind: StringEnum(["scope", "schema", "other"] as const, { description: "scope: what is in or out. schema: DB tables, fields, migrations, data shape." }),
@@ -40,6 +41,8 @@ export default function (pi: ExtensionAPI): void {
 	};
 	pi.on("session_start", async (_event, ctx) => {
 		stop();
+		// Not awaited: a slow probe must not delay startup.
+		void ensureServer().catch(() => {});
 		try {
 			inbox = startInbox(pi, {
 				dir: attentionDir(),

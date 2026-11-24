@@ -390,6 +390,9 @@ renderLegend();
 
 function connect() {
   const es = new EventSource("/events");
+  const boot = (document.querySelector('meta[name="attention-boot"]') || {}).content || "";
+  // The server restarted (pi start brings it back): reload to pick up its new POST token.
+  es.addEventListener("boot", ev => { if (boot && ev.data !== boot) location.reload(); });
   es.onmessage = async ev => {
     const { path } = JSON.parse(ev.data);
     await refresh().catch(() => {});
