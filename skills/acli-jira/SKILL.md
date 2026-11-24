@@ -6,6 +6,32 @@ user-invocable: true
 
 # acli — Jira CLI
 
+## TEMPORARY: acli machine access is down (remove when fixed)
+
+acli can't reach Jira right now. Read tickets through the logged-in cmux browser instead (load the `cmux-browser` skill for the full API):
+
+```bash
+cmux browser open https://redbull-gms.atlassian.net/browse/DPSCEP-123   # prints surface:N
+cmux browser surface:N wait --load-state complete --timeout-ms 20000
+cmux browser surface:N get title                                         # "[KEY] summary - Jira"
+cmux browser surface:N get text "[data-testid='issue.views.field.rich-text.description']"
+cmux browser surface:N eval "[...document.querySelectorAll('[data-testid*=\"status\"] button, [data-testid*=\"assignee\"]')].map(e=>e.innerText).join(' | ')"
+```
+
+For the next ticket, reuse the surface: `cmux browser surface:N navigate <url>`.
+
+**Editing the description (fastest):** `scripts/jira-browser.sh` calls `/rest/api/3` with `fetch` inside the logged-in tab, so the session cookie authenticates. It finds or opens an atlassian.net browser surface (override with `JIRA_SURFACE=surface:N`).
+
+```bash
+JB=/Users/laurenz/.pi/agent/skills/acli-jira/scripts/jira-browser.sh
+$JB get DPSCEP-123                      # -> /tmp/DPSCEP-123.desc.json (ADF)
+# edit the ADF file (jq or write), same ADF rules as below
+$JB put DPSCEP-123 /tmp/DPSCEP-123.desc.json   # prints "204 " on success
+$JB json DPSCEP-123 body.json           # any {"fields":{...}} PUT, e.g. summary/labels
+```
+
+A `400 INVALID_INPUT` means the ADF is malformed; auth worked. Re-run `get` after `put` to verify.
+
 ## View tickets
 
 ```bash

@@ -62,6 +62,7 @@ Pick the cheapest model that fits the job. Pass via `--model`:
 | Role | Model | Notes |
 |------|-------|-------|
 | Recon / simple lookups / summaries | `github-copilot/gpt-5.6-luna` | default, very cheap |
+| Scouts / code reading that needs judgment (trace a value, map repos) | `github-copilot/claude-sonnet-5.5` | luna was too shallow; don't use `gpt-5.6-sol` for scouts, too expensive |
 | Implementation (code changes) | `github-copilot/gpt-5.6-terra` | |
 | Review / planning | `github-copilot/claude-opus-5.5` | combine with read-only tools |
 | Research (web) | `github-copilot/gpt-5.6-sol` | needs web extension, see below |
