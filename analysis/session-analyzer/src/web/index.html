@@ -66,6 +66,10 @@ a { color:var(--blue); }
 .hist > button { margin-bottom:10px; }
 .tab { color:var(--dim); } .state { font-size:16px; }
 
+#memwarn { margin:0 0 12px; font-size:18px; color:var(--amber); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#memwarn:empty { display:none; }
+#memwarn button.link { color:var(--amber); font-size:inherit; text-align:left; }
+
 /* Inspect panel */
 #panel { position:fixed; top:49px; right:0; bottom:0; width:min(720px, calc(100vw - 460px)); background:var(--bg); border-left:1px solid var(--line); display:none; flex-direction:column; z-index:10; font-size:14px; box-shadow:-8px 0 24px #0008; }
 #panel.open { display:flex; }
@@ -86,6 +90,24 @@ label.f { display:block; color:var(--dim); font-size:14px; margin:8px 0 2px; }
 button.pri { border-color:var(--blue); color:var(--blue); }
 button.sel { border-color:var(--green); color:var(--green); }
 button:disabled { opacity:.5; cursor:default; }
+.tabs { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
+.tabs button { font-size:14px; padding:4px 10px; }
+.tabs button.on { border-color:var(--blue); color:var(--blue); }
+.mrow { border:1px solid var(--line); border-radius:8px; padding:8px 12px; margin-bottom:8px; background:var(--panel); cursor:pointer; }
+.mrow .t { font-size:16px; font-weight:600; }
+.mrow .m { font-size:14px; color:var(--dim); }
+.mrow .s { font-size:14px; }
+.mrow .risk { color:var(--amber); font-size:14px; }
+.mrow.open { cursor:default; }
+.chip { display:inline-block; border:1px solid var(--line); border-radius:12px; padding:0 8px; margin:4px 6px 0 0; font-size:14px; color:var(--blue); background:none; font-family:inherit; cursor:pointer; text-decoration:none; }
+span.chip { color:var(--dim); cursor:default; }
+.toast { position:sticky; top:0; background:var(--panel); border:1px solid var(--green); border-radius:6px; padding:6px 10px; margin-bottom:8px; font-size:14px; display:flex; gap:10px; align-items:center; }
+.kv { display:grid; grid-template-columns:110px 1fr; gap:2px 10px; font-size:14px; margin:6px 0; }
+.kv span:nth-child(odd) { color:var(--dim); }
+.pick .sess { display:block; width:100%; text-align:left; margin-top:4px; font-size:14px; }
+.pick .sess.on { border-color:var(--blue); color:var(--blue); }
+.seg.g { cursor:pointer; }
+.seg.sub2 { padding-left:22px; color:var(--dim); }
 .nums { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; }
 .num { background:var(--panel); border-radius:8px; padding:6px 10px; }
 .num .v { font-size:20px; font-weight:700; } .num .k { color:var(--dim); font-size:14px; }
@@ -108,9 +130,10 @@ svg { width:100%; height:100%; display:block; }
     <span id="focus"></span>
     <span class="sp"></span>
     <span id="unread"></span>
+    <button class="link" id="memctl">Work memory</button>
   </div>
   <div id="rail"><div id="slist"></div></div>
-  <div id="decide"><h2><span>Decisions</span><small id="dcount"></small></h2><div id="dlist"></div></div>
+  <div id="decide"><h2><span>Decisions</span><small id="dcount"></small></h2><div id="memwarn"></div><div id="dlist"></div></div>
 </div>
 <div id="panel" role="dialog" aria-label="Inspect">
   <div id="panelbar"><b id="paneltitle"></b><button id="close">Close</button></div>
@@ -142,8 +165,9 @@ const STATUS = { working:"working", waiting:"waiting for you", idle:"idle" };
 const KIND = { scope:"Scope", schema:"DB schema", other:"Assumption" };
 const state = {
   att:null, okAt:0, failed:false, open:new Set(), earlier:false, moreDecisions:false,
-  ref:null, series:null, sel:null, detail:null, title:"", panel:null, history:false, shown:new Set(),
+  ref:null, series:null, sel:null, detail:null, title:"", panel:null, openSources:new Set(), history:false, shown:new Set(),
   steers:JSON.parse(localStorage.getItem("attention.steers") || "{}"), steerState:{}, drafts:{}, msg:{},
+  mem:{ q:"", state:"relevant", repo:"", items:[], version:"", counts:null, readAt:0, skipped:0, expanded:null, undo:null, pick:null, msg:"", summary:null, repos:[] },
   seen:new Set(JSON.parse(localStorage.getItem("attention.seen") || "[]")),
 };
 
@@ -189,7 +213,7 @@ function sessionRow(s) {
   const open = s.actionable ? ` · <span class="amber">${s.actionable} open</span>` : "";
   d.innerHTML = `<div class="l1"><span>${esc(s.project)}${s.name ? ` <span class="dim" style="font-weight:400">· ${esc(clip(s.name, 40))}</span>` : ""}</span><span>${fmtCost(s.cost)}</span></div>
     <div class="l2"><span><span class="st ${s.status}">${STATUS[s.status]}</span>${open}${focus ? " · in focus" : ""}</span><span>started ${fmtAge(s.ageDays)} ago</span></div>
-    <div class="l3"><span>updated ${ago(s.mtime)} ago</span>${subs}</div>`;
+    <div class="l3"><span>updated ${ago(s.mtime)} ago${s.memoryCount ? ` · <span title="open work-memory items linking this session">${s.memoryCount} memory</span>` : ""}</span>${subs}</div>`;
   const go = ev => {
     if (ev.target.dataset && ev.target.dataset.t) { state.open.has(s.id) ? state.open.delete(s.id) : state.open.add(s.id); renderRail(); return; }
     openContext(s);
@@ -262,7 +286,7 @@ function decisionRow(c, extra, handled) {
   d.tabIndex = 0;
   const label = handled ? handledLabel(c) : (KIND[c.kind] || "Assumption");
   const more = extra > 0 ? ` · +${extra} more from this turn` : "";
-  const steer = steerLine(c.key);
+  const steer = steerLine(c.key) || (c.saved ? "Saved" : "");
   d.innerHTML = `<div class="body"><div class="head">${!handled && isNew(c) ? '<span class="newlabel">New</span>' : ""}${esc(clip(c.decision, 110))}</div>
     <div class="why">${esc(clip(c.basis || (c.alternatives.length ? "Instead: " + c.alternatives.join(" · ") : ""), 100))}</div>
     <div class="meta"><span class="${handled ? "" : "tag"}">${label}</span> · ${esc(c.project)}${c.name ? " · " + esc(c.name) : ""} · ${ago(Date.parse(c.timestamp))} ago${more}${steer ? " · " + steer : ""}</div></div>
@@ -322,9 +346,190 @@ async function pollSteers() {
     catch (e) { state.steerState[key] = { state:"error" }; }
     changed = true;
   }
-  if (changed && state.att) renderDecisions();
+  if (changed && state.att) { renderDecisions(); if (state.panel && state.panel.kind === "memory") renderMemList(); }
 }
 setInterval(() => pollSteers().catch(() => {}), 2500);
+
+
+// ── work memory ──
+const MEM_STATES = [["relevant", "Relevant"], ["stale", "Stale"], ["open", "All open"], ["done", "Done"]];
+const daysAgo = day => Math.max(0, Math.floor((Date.now() - Date.parse(day + "T00:00:00Z")) / 864e5));
+const safeHref = h => /^https?:\/\//.test(h) ? h : "#";
+
+async function refreshMemory() {
+  try {
+    const r = await api("/api/memory/items?state=open");
+    state.mem.summary = { counts: r.counts, atRisk: r.items.filter(i => i.atRisk) };
+    state.mem.repos = [...new Map(r.items.filter(i => i.cwd).map(i => [i.cwd, i.repo])).entries()];
+  } catch (e) { /* keep the last summary */ }
+  renderMemoryGlance();
+}
+
+function renderMemoryGlance() {
+  const m = state.mem.summary, ctl = $("memctl"), warn = $("memwarn");
+  if (!m) { ctl.textContent = "Work memory"; warn.textContent = ""; return; }
+  ctl.innerHTML = `Work memory · ${m.counts.open} open${m.counts.atRisk ? ` · <span class="amber">${m.counts.atRisk} dropping soon</span>` : ""}`;
+  warn.innerHTML = "";
+  if (m.atRisk.length) {
+    const first = m.atRisk[0];
+    const b = document.createElement("button");
+    b.className = "link amber";
+    b.textContent = `Work memory: ${m.atRisk.length} open item${m.atRisk.length === 1 ? "" : "s"} drop${m.atRisk.length === 1 ? "s" : ""} by ${m.atRisk.reduce((d, i) => i.prunesOn < d ? i.prunesOn : d, "9999")}: ${clip(first.title, 70)}${m.atRisk.length > 1 ? ` and ${m.atRisk.length - 1} more` : ""}`;
+    b.onclick = () => openMemory(first.id);
+    warn.appendChild(b);
+  }
+}
+
+function openMemory(focusId) {
+  const m = state.mem;
+  state.ref = null; state.panel = { kind:"memory" };
+  m.pick = null; m.msg = "";
+  if (focusId) { m.q = focusId; m.state = "open"; m.repo = ""; m.expanded = focusId; }
+  openPanel("Work memory");
+  $("panelbody").innerHTML = `<div id="memtool"><input type="text" id="memq" placeholder="Search title, status, repo, links" aria-label="Search work memory">
+    <div class="tabs" id="memtabs"></div><div class="row2"><label class="dim" for="memrepo">Repo</label><select id="memrepo" style="background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px;font-size:14px"></select></div></div>
+    <div id="memtoast"></div><div id="memlist" style="margin-top:10px"></div><div id="memfoot" class="claim"></div>`;
+  $("memq").value = m.q;
+  $("memq").oninput = () => { clearTimeout(m.qt); m.qt = setTimeout(() => { m.q = $("memq").value; loadMemory(); }, 250); };
+  loadMemory(focusId);
+}
+
+async function loadMemory(focusId) {
+  const m = state.mem;
+  const url = st => "/api/memory/items?state=" + st + "&query=" + encodeURIComponent(m.q) + "&repo=" + encodeURIComponent(m.repo);
+  try {
+    let r = await api(url(m.state));
+    if (focusId && !r.items.length) { m.state = "done"; r = await api(url("done")); }
+    Object.assign(m, { items: r.items, version: r.version, counts: r.counts, readAt: r.readAt, skipped: r.skippedLines, msg: "" });
+  } catch (e) { m.msg = "Could not read work memory: " + e.message; }
+  if (state.panel && state.panel.kind === "memory") { renderMemTools(); renderMemList(); }
+}
+
+function renderMemTools() {
+  const m = state.mem, tabs = $("memtabs");
+  if (!tabs) return;
+  tabs.innerHTML = MEM_STATES.map(([k, label]) => `<button data-st="${k}" class="${m.state === k ? "on" : ""}">${label}${m.counts ? " " + m.counts[k] : ""}</button>`).join("");
+  tabs.querySelectorAll("button").forEach(b => b.onclick = () => { m.state = b.dataset.st; m.expanded = null; loadMemory(); });
+  const sel = $("memrepo");
+  sel.innerHTML = '<option value="">All repos</option>' + m.repos.map(([cwd, name]) => `<option value="${esc(cwd)}">${esc(name)}</option>`).join("");
+  sel.value = m.repo;
+  sel.onchange = () => { m.repo = sel.value; loadMemory(); };
+}
+
+function chip(l) {
+  if (l.kind === "session") return `<button class="chip" data-ref="${esc(l.ref)}">${esc(l.label)}</button>`;
+  if (l.href) return `<a class="chip" href="${esc(safeHref(l.href))}" target="_blank" rel="noopener noreferrer">${esc(l.label)}</a>`;
+  return `<span class="chip">${esc(l.label)}</span>`;
+}
+
+function renderMemToast() {
+  const el = $("memtoast"), u = state.mem.undo;
+  if (!el) return;
+  if (!u || Date.now() > u.until) { el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="toast"><span class="green">Marked done:</span> ${esc(clip(u.title, 50))} <button data-a="undo">Undo (${Math.ceil((u.until - Date.now()) / 1000)}s)</button></div>`;
+  el.querySelector("button").onclick = undoDone;
+}
+
+function renderMemList() {
+  const m = state.mem, el = $("memlist");
+  if (!el) return;
+  renderMemToast();
+  $("memfoot").textContent = m.msg || (m.readAt ? `Read ${clock(m.readAt)}${m.skipped ? ` · ${m.skipped} unreadable line${m.skipped === 1 ? "" : "s"} skipped` : ""} · estimates of pruning follow the 60-day rule and keepUntil` : "");
+  $("memfoot").className = m.msg ? "red" : "claim";
+  el.innerHTML = m.items.length ? "" : `<div class="dim">No items here.</div>`;
+  for (const it of m.items) el.appendChild(memRow(it));
+}
+
+function memRow(it) {
+  const m = state.mem, open = m.expanded === it.id;
+  const d = document.createElement("div");
+  d.className = "mrow" + (open ? " open" : "");
+  const links = [...it.links, ...it.sessionLinks];
+  const age = daysAgo(it.updated);
+  const risk = it.atRisk ? `<div class="risk">Drops from memory on ${esc(it.prunesOn)} unless kept.</div>` : "";
+  let html = `<div class="t" ${open ? "" : 'tabindex="0"'} data-t="1">${esc(clip(it.title, open ? 300 : 90))}</div>
+    <div class="m">${esc(it.repo || "no repo")} · updated ${age === 0 ? "today" : age + "d ago"}${it.stale ? " · stale" : ""}${it.done ? " · done" : ""}</div>
+    <div class="s">${esc(open ? it.status : clip(it.status, 140))}</div>${risk}
+    <div>${(open ? links : links.slice(0, 2)).map(chip).join("")}</div>`;
+  if (open) {
+    html += `<div class="kv"><span>ID</span><span><code>${esc(it.id)}</code></span><span>Created</span><span>${esc(it.created)}</span><span>Updated</span><span>${esc(it.updated)}</span>
+      <span>Keep until</span><span>${esc(it.keepUntil || "not set")}</span><span>Drops on</span><span>${esc(it.prunesOn || "never (kept forever)")}</span></div>
+      <div class="row2">${it.done ? "" : `<button data-a="done">Mark done</button><button data-a="keep30">Keep 30 more days</button><button data-a="forever">Keep forever</button><button data-a="pick" class="${m.pick && m.pick.id === it.id ? "on" : ""}">Pick this up</button>`}</div>
+      ${m.pick && m.pick.id === it.id ? pickHtml(it) : ""}`;
+  }
+  d.innerHTML = html;
+  d.onclick = ev => {
+    if (ev.target.closest("a,button,textarea,input")) return;
+    if (!open) { m.expanded = it.id; m.pick = null; renderMemList(); }
+    else if (ev.target.dataset && ev.target.dataset.t) { m.expanded = null; m.pick = null; renderMemList(); }
+  };
+  d.onkeydown = ev => { if (ev.key === "Enter" && ev.target.dataset && ev.target.dataset.t) { m.expanded = open ? null : it.id; renderMemList(); } };
+  d.querySelectorAll("button[data-ref]").forEach(b => b.onclick = () => openContextRef(b.dataset.ref, it.title));
+  d.querySelectorAll("button[data-a]").forEach(b => b.onclick = () => memAction(it, b.dataset.a));
+  const ta = d.querySelector("textarea");
+  if (ta) ta.oninput = () => { m.pick.text = ta.value; };
+  d.querySelectorAll("button[data-sess]").forEach(b => b.onclick = () => { m.pick.sessionId = m.pick.sessionId === b.dataset.sess ? null : b.dataset.sess; renderMemList(); });
+  return d;
+}
+
+function pickDraft(it) {
+  const refs = [...it.links].map(l => l.href && l.kind !== "text" ? `${l.label} ${l.href}` : l.label);
+  return `Pick up this item from work memory (read the full item with the work_memory tool if needed).\nID: ${it.id}\nTitle: ${it.title}\nStatus: ${it.status}${refs.length ? "\nLinks: " + refs.join(", ") : ""}\n`;
+}
+
+function pickHtml(it) {
+  const p = state.mem.pick, sessions = state.att.sessions.filter(s => !s.orphan && s.cwd && s.cwd === it.cwd);
+  const st = steerLine("pick:" + it.id + ":" + p.sessionId);
+  return `<div class="sect pick"><h3>Pick this up in</h3>
+    ${sessions.length ? sessions.map(s => `<button class="sess ${p.sessionId === s.id ? "on" : ""}" data-sess="${esc(s.id)}">${esc(s.project)}${s.name ? " · " + esc(s.name) : ""} · ${STATUS[s.status]} · updated ${ago(s.mtime)} ago</button>`).join("") : '<div class="dim">No listed session has this exact working directory.</div>'}
+    <label class="f">Message (edit before sending)</label><textarea>${esc(p.text)}</textarea>
+    <div class="row2"><button class="pri" data-a="sendpick" ${p.sessionId ? "" : "disabled"}>Send to chosen session</button><span class="state">${p.sessionId ? st : "Choose a session first."}</span><span class="red">${esc(p.err || "")}</span></div></div>`;
+}
+
+async function memFail(e) {
+  const msg = /changed/.test(e.message) ? "Work memory changed on disk; the list was reloaded. Try again." : "Failed: " + e.message;
+  await loadMemory();
+  state.mem.msg = msg;
+  renderMemList();
+}
+
+async function memAction(it, a) {
+  const m = state.mem;
+  try {
+    if (a === "pick") { m.pick = m.pick && m.pick.id === it.id ? null : { id: it.id, sessionId: null, text: pickDraft(it), err: "" }; return renderMemList(); }
+    if (a === "sendpick") {
+      const p = m.pick; p.err = "";
+      if (!p.sessionId || !p.text.trim()) { p.err = "Choose a session and write a message."; return renderMemList(); }
+      const r = await post("/api/steer", { sessionId: p.sessionId, text: p.text });
+      state.steers["pick:" + it.id + ":" + p.sessionId] = { id: r.id, at: Date.now() }; state.steerState["pick:" + it.id + ":" + p.sessionId] = { state:"pending", ageMs:0 }; saveSteers();
+      return renderMemList();
+    }
+    const body = a === "done" ? { done: true } : a === "keep30" ? { keepUntil: "+30d" } : { keepUntil: "forever" };
+    const r = await post("/api/memory/update", { id: it.id, version: m.version, ...body });
+    m.version = r.version;
+    if (a === "done") {
+      clearInterval(m.tick);
+      m.undo = { id: it.id, title: it.title, updated: it.updated, until: Date.now() + 5000 };
+      m.tick = setInterval(() => { if (Date.now() > m.undo.until) { clearInterval(m.tick); m.undo = null; } renderMemToast(); }, 500);
+    }
+    await loadMemory(); refreshMemory();
+  } catch (e) { await memFail(e); }
+}
+
+async function undoDone() {
+  const m = state.mem, u = m.undo;
+  if (!u || Date.now() > u.until) return;
+  try {
+    const r = await post("/api/memory/update", { id: u.id, version: m.version, done: false, updated: u.updated });
+    m.version = r.version; m.undo = null; clearInterval(m.tick);
+    await loadMemory(); refreshMemory();
+  } catch (e) { m.undo = null; await memFail(e); }
+}
+
+function openContextRef(ref, title) {
+  const s = state.att && allSessions().find(x => x.ref === ref);
+  openContext(s || { ref, project: title, name: null });
+}
 
 // ── Inspect panel ──
 function openPanel(title) { $("paneltitle").textContent = title; $("panel").classList.add("open"); }
@@ -360,7 +565,7 @@ function renderCatchPanel(force) {
   const steerSt = steerLine(c.key);
   const draft = c.memoryDraft, md = state.drafts["mem:" + c.key] || {};
   const verdict = c.verdict ? `<span class="${c.verdict === "useful" ? "green" : "dim"}">Marked ${c.verdict}.</span> <button data-a="undo">Undo</button>` : "";
-  const saved = c.saved ? `<div><span class="green">Saved</span> to work memory as <code>${esc(c.saved.itemId)}</code>.</div>` : `
+  const saved = c.saved ? `<div><span class="green">Saved</span> to work memory as <code>${esc(c.saved.itemId)}</code>. <button class="link" data-a="item">View item</button></div>` : `
     <label class="f">Title</label><input type="text" id="memtitle" maxlength="200" value="${esc(md.title ?? draft.title)}">
     <label class="f">Status</label><input type="text" id="memstatus" maxlength="500" value="${esc(md.status ?? draft.status)}">
     <div class="row2"><button data-a="save">Save to memory</button></div>`;
@@ -389,6 +594,7 @@ async function catchAction(c, a) {
   state.msg[c.key] = "";
   try {
     if (a === "context") { const s = sessionOf(c); if (s) openContext(s, c.requestIndex); return; }
+    if (a === "item") return openMemory(c.saved.itemId);
     if (a === "send") {
       const text = (state.drafts[c.key] || "").trim();
       if (!text) { state.msg[c.key] = "Write a message first."; return renderCatchPanel(true); }
@@ -410,12 +616,13 @@ async function catchAction(c, a) {
 
 function openContext(s, at) {
   state.panel = { kind:"context" };
-  state.ref = s.ref; state.sel = at === undefined ? null : at; state.series = null; state.detail = null;
+  state.ref = s.ref; state.sel = at === undefined ? null : at; state.openSources = new Set(); state.series = null; state.detail = null;
   openPanel(s.project + (s.name ? " · " + s.name : ""));
   $("panelbody").innerHTML = `<div class="nums" id="nums"></div>
     <div class="box" id="chartbox"><div id="head"></div><svg id="chart"></svg></div>
     <div class="box" id="treebox"><svg id="tree"></svg></div>
-    <h3>Largest segments (estimated tokens)</h3><div id="top"></div><div id="legend"></div>`;
+    <div class="claim" id="excerpt" style="margin-top:10px"></div>
+    <h3>Context by source (estimated tokens; click to expand)</h3><div id="top"></div><div id="legend"></div>`;
   $("legend").innerHTML = SOURCES.map(x => `<span><i class="sw" style="background:${COLORS[x]}"></i>${x}</span>`).join("");
   renderRail();
   loadSession();
@@ -582,14 +789,23 @@ function renderNums() {
   const cells = [["request", `${d.requestIndex + 1} of ${n}`], ["turn", d.turnIndex], ["context tokens", fmtK(d.contextTokens)],
     ["cost through request", fmtCost(through)], ["session total", fmtCost(total)], ["compactions", state.series.compactions.length]];
   for (const [k, v] of cells) nums.insertAdjacentHTML("beforeend", `<div class="num"><div class="v">${v}</div><div class="k">${k}</div></div>`);
-  for (const s of [...d.segments].sort((a, b) => b.chars - a.chars).slice(0, 10)) {
-    top.insertAdjacentHTML("beforeend", `<div class="seg"><i class="sw" style="background:${COLORS[s.source]}"></i><span class="n" title="${esc(s.source)}">${esc(s.label || s.source)}</span><span class="v">~${fmtK(s.tokens)}</span></div>`);
+  const turn = state.series.turns.find(t => t.turnIndex === d.turnIndex);
+  const ex = $("excerpt");
+  ex.textContent = turn && turn.userText ? `Turn ${d.turnIndex} prompt: "${turn.userText}${turn.userText.length >= 120 ? " […]" : ""}"` : "";
+  for (const g of [...d.bySource].sort((x, y) => y.chars - x.chars)) {
+    const open = state.openSources.has(g.source);
+    top.insertAdjacentHTML("beforeend", `<div class="seg g" data-s="${esc(g.source)}"><i class="sw" style="background:${COLORS[g.source] || "#666"}"></i><span class="n">${open ? "▾" : "▸"} ${esc(g.source)} · ${g.count} block${g.count === 1 ? "" : "s"}</span><span class="v">~${fmtK(g.tokensEstimate)}</span></div>`);
+    if (open) for (const x of d.segments.filter(x => x.source === g.source).sort((p, q) => q.chars - p.chars).slice(0, 40)) {
+      top.insertAdjacentHTML("beforeend", `<div class="seg sub2"><span class="n" title="${esc(x.label || x.source)}">${esc(x.label || x.source)} · ${x.chars.toLocaleString()} chars · age ${x.ageTurns} turns</span><span class="v">~${fmtK(x.tokens)}</span></div>`);
+    }
   }
+  top.querySelectorAll(".seg.g").forEach(el => el.onclick = () => { const k = el.dataset.s; state.openSources.has(k) ? state.openSources.delete(k) : state.openSources.add(k); renderNums(); });
 }
 
 function render() { if (!$("chart")) return; renderChart(); renderTree(); renderNums(); }
 
 $("close").onclick = closePanel;
+$("memctl").onclick = () => openMemory();
 addEventListener("keydown", ev => { if (ev.key === "Escape" && $("panel").classList.contains("open") && !/^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName)) closePanel(); });
 addEventListener("resize", () => { if (state.ref) render(); });
 
@@ -598,6 +814,11 @@ function connect() {
   const boot = (document.querySelector('meta[name="attention-boot"]') || {}).content || "";
   // The server restarted (pi start brings it back): reload to pick up its new POST token.
   es.addEventListener("boot", ev => { if (boot && ev.data !== boot) location.reload(); });
+  es.addEventListener("memory", () => {
+    refreshMemory();
+    const typing = /^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName);
+    if (state.panel && state.panel.kind === "memory" && !typing) loadMemory();
+  });
   es.onmessage = async ev => {
     const { path } = JSON.parse(ev.data);
     await refresh().catch(() => {});
@@ -605,7 +826,8 @@ function connect() {
   };
 }
 refresh().catch(() => {}).then(connect);
-setInterval(() => { refresh().catch(() => {}); renderRail(); }, 15000);
+refreshMemory();
+setInterval(() => { refresh().catch(() => {}); renderRail(); refreshMemory(); }, 15000);
 </script>
 </body>
 </html>

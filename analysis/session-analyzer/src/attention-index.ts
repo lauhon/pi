@@ -3,8 +3,8 @@
  * the HTTP; this module does the work, so tests can call it without a socket.
  */
 import { createHash } from "node:crypto";
-import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
 	attentionDir,
 	catchKey,
@@ -107,7 +107,13 @@ export function listSummaries(files: { path: string; mtimeMs: number }[]): Summa
 
 /** Opaque, stable reference for a session file; the page never needs (or shows) the path. */
 export function sessionRef(path: string): string {
-	return createHash("sha256").update(path).digest("hex").slice(0, 16);
+	let real: string;
+	try {
+		real = realpathSync(path);
+	} catch {
+		real = resolve(path);
+	}
+	return createHash("sha256").update(real).digest("hex").slice(0, 16);
 }
 
 export type RailGroup = "waiting" | "working-catch" | "working" | "idle";
@@ -132,6 +138,8 @@ export interface SessionView {
 	contextTokens: number;
 	/** Catches on this session still open to a decision. */
 	actionable: number;
+	/** Open work-memory items that link exactly this session file. */
+	memoryCount: number;
 	subs: SessionView[];
 	/** Sub-run whose parent is not among the listed sessions. */
 	orphan?: boolean;
@@ -153,6 +161,7 @@ function view(s: Summary, now: number): SessionView {
 		lastAssistantMs: s.lastAssistantMs,
 		contextTokens: s.contextTokens,
 		actionable: 0,
+		memoryCount: 0,
 		subs: [],
 	};
 }
@@ -188,8 +197,9 @@ export function buildAttention(
 	focused: string | null,
 	now = Date.now(),
 	dir = attentionDir(),
-	focusKnown = true,
+	options: { focusKnown?: boolean; memoryCounts?: Map<string, number> } = {},
 ): AttentionPayload {
+	const focusKnown = options.focusKnown ?? true;
 	const cutoff = now - hours * 3_600_000;
 	const views = new Map<string, SessionView>();
 	for (const s of all) if (!s.sub) views.set(s.id, view(s, now));
@@ -230,6 +240,7 @@ export function buildAttention(
 		}
 		for (const { sessionPath: _p, ...o } of s.outcomes) if (Date.parse(o.timestamp) >= cutoff) outcomes.push({ ...o, sessionRef: ref, ...label });
 	}
+	for (const v of sessions) for (const x of [v, ...v.subs]) x.memoryCount = options.memoryCounts?.get(x.ref) ?? 0;
 	const listed = sessions.filter((v) => v.mtime >= cutoff || v.subs.some((x) => x.mtime >= cutoff));
 	const decisions = rankSessions(listed, catches, all, focused);
 	const newest = (a: { timestamp: string }, b: { timestamp: string }) => Date.parse(b.timestamp) - Date.parse(a.timestamp);

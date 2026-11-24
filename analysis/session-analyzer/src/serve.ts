@@ -7,9 +7,11 @@
  *   GET /                         the page (web/index.html)
  *   GET /api/sessions?hours=24    sessions changed in the last N hours, newest first
  *   GET /api/session?path=        one row per request: tokens and chars by source
- *   GET /api/request?path=&i=     the segments of request i (default last)
+ *   GET /api/request?path=&i=     the segments of request i (default last); both take ref= (from /api/attention) instead of path=
  *   GET /api/attention?hours=24   sessions, catches, outcomes, verdicts, focused session (attention inbox v1)
- *   POST /api/steer|verdict|memory  need Host, Origin and the per-start token (header x-attention-token)
+ *   GET /api/steer/status?id=     pending | sent | rejected for a steer, from the inbox file suffix
+ *   GET /api/memory/items?query=&state=relevant|stale|open|done&repo=   work-memory items with version
+ *   POST /api/steer|verdict|memory|memory/update  need Host, Origin and the per-start token (header x-attention-token)
  *   GET /events                   Server-Sent Events: {"path"} when a .jsonl changed
  */
 import { execFile } from "node:child_process";
@@ -25,6 +27,7 @@ import { createNotifier, NOTIFY_WINDOW_MS } from "./attention-notify.ts";
 import { buildAttention, focusedTitle, listSummaries, matchFocused, parseSteerId, sessionRef, steerDir, steerId, steerStatus, writeSteer, writeSubInbox, type Summary } from "./attention-index.ts";
 import { loadSession } from "./load.ts";
 import { applyOps, loadItems, memoryRoot, saveItems } from "../../../extensions/work-memory/store.ts";
+import { listMemory, MemoryError, memoryVersion, parseUpdate, sessionMemoryCounts, updateMemory } from "./memory-view.ts";
 import type { Session } from "./types.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -74,10 +77,18 @@ function guarded(dirs: string[], path: string | null | undefined): string {
 }
 
 /** Session file for an opaque ref from /api/attention. Only files inside a served dir can match. */
+const refCache = new Map<string, string>();
+
 export function resolveRef(dirs: string[], ref: string | null | undefined): string {
 	if (!ref || !/^[0-9a-f]{16}$/.test(ref)) throw new ApiError(400, "bad ref");
+	const hit = refCache.get(ref);
+	if (hit && existsSync(hit) && isInside(dirs, hit) && sessionRef(hit) === ref) return hit;
 	for (const dir of dirs) {
-		for (const file of jsonlFilesSince(dir, 0)) if (sessionRef(file.path) === ref) return file.path;
+		for (const file of jsonlFilesSince(dir, 0)) {
+			const r = sessionRef(file.path);
+			refCache.set(r, file.path);
+			if (r === ref) return file.path;
+		}
 	}
 	throw new ApiError(404, "no such session");
 }
@@ -314,6 +325,7 @@ export interface ServeOptions {
 const MAX_BODY = 16 * 1024;
 const FOCUS_TTL_MS = 3000;
 const LOOKUP_HOURS = 24 * 14;
+const MEMORY_DEBOUNCE_MS = 300;
 
 function run(cmd: string, args: string[]): Promise<string | null> {
 	return new Promise((done) => {
@@ -366,6 +378,9 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 	const timers = new Map<string, NodeJS.Timeout>();
 	const watchers: FSWatcher[] = [];
 	let port = options.port;
+
+	/** Opaque ref of a session file the page may open; null for anything outside the served dirs or gone. */
+	const refOf = (path: string): string | null => (path.endsWith(".jsonl") && existsSync(path) && isInside(dirs, path) ? sessionRef(path) : null);
 
 	const broadcast = (path: string, extra: Record<string, unknown> = {}) => {
 		for (const client of clients) client.write(`data: ${JSON.stringify({ path, ...extra })}\n\n`);
@@ -454,6 +469,24 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 	}, KEEPALIVE_MS);
 	keepAlive.unref();
 
+	let memoryTimer: NodeJS.Timeout | undefined;
+	const memoryChanged = () => {
+		clearTimeout(memoryTimer);
+		memoryTimer = setTimeout(() => {
+			const event = `event: memory\ndata: ${JSON.stringify({ version: memoryVersion(memoryRoot()) })}\n\n`;
+			for (const client of clients) client.write(event);
+		}, MEMORY_DEBOUNCE_MS);
+	};
+	try {
+		const watcher = watch(memoryRoot(), (_event, filename) => {
+			if (!filename || String(filename).startsWith("items.jsonl")) memoryChanged();
+		});
+		watcher.on("error", () => {});
+		watchers.push(watcher);
+	} catch {
+		// no memory dir yet: the page still reads it on demand
+	}
+
 	const readBody = (req: IncomingMessage): Promise<unknown> =>
 		new Promise((done, fail) => {
 			const chunks: Buffer[] = [];
@@ -517,6 +550,11 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 				appendVerdict(key, verdict, adir);
 				return { ok: true };
 			}
+			case "/api/memory/update": {
+				const result = updateMemory(memoryRoot(), parseUpdate(body), Date.now(), refOf);
+				memoryChanged();
+				return result;
+			}
 			case "/api/memory": {
 				const key = field(body, "catchKey", 300)!;
 				const title = field(body, "title", 200, false)?.trim();
@@ -538,7 +576,8 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 				saveItems(root, result.items);
 				const itemId = result.added[0] ?? result.updated[0];
 				if (itemId) appendSaved(key, itemId, adir);
-				return { ok: true, added: result.added, itemId, existing: false };
+				memoryChanged();
+				return { ok: true, added: result.added, itemId, existing: false, version: memoryVersion(root) };
 			}
 			default:
 				throw new ApiError(404, "not found");
@@ -552,7 +591,7 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 			const url = new URL(req.url ?? "/", "http://localhost");
 			if (req.method === "POST") {
 				checkPost(req, host);
-				if (!["/api/steer", "/api/verdict", "/api/memory"].includes(url.pathname)) throw new ApiError(404, "not found");
+				if (!["/api/steer", "/api/verdict", "/api/memory", "/api/memory/update"].includes(url.pathname)) throw new ApiError(404, "not found");
 				const result = await post(url.pathname, await readBody(req));
 				broadcast("", { attention: true });
 				return sendJson(res, 200, result);
@@ -570,9 +609,12 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 					const hours = Number(q.get("hours") ?? 24);
 					if (!Number.isFinite(hours) || hours <= 0) throw new ApiError(400, "bad hours");
 					const all = recent(hours);
-					const focus = await focusInfo();
-					return sendJson(res, 200, buildAttention(all, hours, matchFocused(focus.title, all), Date.now(), adir, focus.known));
+				const focus = await focusInfo();
+					const memoryCounts = sessionMemoryCounts(memoryRoot(), refOf);
+					return sendJson(res, 200, buildAttention(all, hours, matchFocused(focus.title, all), Date.now(), adir, { focusKnown: focus.known, memoryCounts }));
 				}
+				case "/api/memory/items":
+					return sendJson(res, 200, listMemory(memoryRoot(), { query: q.get("query") ?? undefined, state: q.get("state") ?? undefined, repo: q.get("repo") ?? undefined }, Date.now(), refOf));
 				case "/api/steer/status": {
 					const ref = parseSteerId(q.get("id") ?? "");
 					if (!ref) throw new ApiError(400, "bad id");
@@ -607,6 +649,7 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 			}
 		} catch (error) {
 			if (error instanceof ApiError) sendJson(res, error.status, { error: error.message });
+			else if (error instanceof MemoryError) sendJson(res, error.status, { ...error.extra, error: error.message });
 			else sendJson(res, 500, { error: (error as Error).message });
 		}
 	};
@@ -626,6 +669,7 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 					new Promise<void>((done) => {
 						clearInterval(keepAlive);
 						notifier.close();
+						clearTimeout(memoryTimer);
 						for (const timer of timers.values()) clearTimeout(timer);
 						for (const watcher of watchers) watcher.close();
 						for (const client of clients) client.end();
