@@ -45,6 +45,7 @@
 - Start with the narrowest relevant artifact. Enumerate directories before reading multiple files; never guess filenames after a missing-path error.
 - Bound searches to known project roots and exclude dependencies, generated files, caches, and state directories. Do not recursively search `$HOME` without explicit need and limits.
 - For complex SQL, JSON payloads, or multi-line or nested shell, write a temporary file or script and run a simple command.
+- Read large files, diffs and logs by range or match (`rg -n`, `sed -n`, `git diff -- <path>`), not whole; one tool result over ~10k chars stays in every later request.
 - After one failed exact edit, re-read wider surrounding context. After two failures in the same section, stop and reassess.
 - Before finalizing, reconcile explicit requirements against implementation and verification. State unmet or unverified items plainly.
 - When a reference in the request has two readings ("the review": the PR or the comments; "the export": which one), ask before acting.
@@ -73,6 +74,7 @@
 - Regular git work (branch, commit, push, open PRs) needs no approval.
 - **Always ask before** merging a PR (`gh pr merge`, merging into `main`) or deploying a release by tag (`git tag`, pushing tags, `gh release create`).
 - For those, present the exact command(s) you intend to run and wait for approval.
+- Exception: in `~/.pi/agent` (lauhon/pi), commit and push straight to `main`.
 
 ## Jira
 
