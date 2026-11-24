@@ -1,0 +1,143 @@
+[
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-07-09T07-58-48-164Z_019f45e2-ef64-7f87-bb4e-8fb7f9efbf66.jsonl",
+    "outcome": "mixed",
+    "earliestSaveTurn": 30,
+    "level": "process",
+    "note": "Env rollout streamed over SSH tunnel; drops at 32/33 ($12), moved to jumphost at 37 ($16.6); turns 53-59 tunnel loss again, ended interrupted at $25.7 turn 57."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-07-15T12-53-15-582Z_019f65d6-acbe-7e06-ba9a-5afaa7c4f9da.jsonl",
+    "outcome": "mixed",
+    "earliestSaveTurn": 53,
+    "level": "tooling",
+    "note": "ADR and rollup build reached; turns 53-58 stalled subagents, provider-switch talk, user said \"do the work yourself\" ($11.4 at 58), rewinds 28/31/52."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-08-10T08-54-19-279Z_019feae1-438f-7fc8-97d5-ebd2c5e613b6.jsonl",
+    "outcome": "good",
+    "note": "RBA id plan, backend+SDK implemented and PR feedback triaged, no rewinds or corrections; only turn 11 ($7) paused on a zsh branch display glitch."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-08-10T12-43-26-979Z_019febb3-0983-7dee-9311-4e0d9c6de602.jsonl",
+    "outcome": "mixed",
+    "earliestSaveTurn": 5,
+    "level": "process",
+    "note": "Import done, but export ran over SSH tunnel (tunnel drops turns 6-9, slow estimate at 15) until turn 18 switched to docker on jumphost, which finished fast."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-08-12T08-15-59-898Z_019ff50a-e59a-77f8-a42a-2d5585cd4c2e.jsonl",
+    "outcome": "good",
+    "note": "Players filter and admin delete shipped with durable workflow and e2e tests; CI fixes and one user pushback at 21, but no abandonment or costly wrong path."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-08-13T14-51-22-557Z_019ffb9b-3c3d-7330-96f8-036a096a0bc9.jsonl",
+    "outcome": "mixed",
+    "earliestSaveTurn": 26,
+    "level": "instructions",
+    "note": "PR 155 finished and merged, but ADR 0015 written at turn 26 then folded into ADR 0006 at 71-73; turns 41-54 spent on e2e flake chase; correction at 65."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-09-02T08-50-23-876Z_01a0614f-f003-709b-a70a-7c4d7c8b82ed.jsonl",
+    "outcome": "good",
+    "note": "68 turns of ops and debugging, each answered; one correction at T18 (agent skipped the GLS DB write), 4 interrupts, ends answered, no follow-up fix."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-09-16T08-53-15-730Z_01a0a96b-9752-732d-b069-65d31e25ad6a.jsonl",
+    "outcome": "mixed",
+    "earliestSaveTurn": 31,
+    "level": "instructions",
+    "note": "Feature shipped, but model routing was restated: T31 'No i want to delegate to 5.6 terra' after agent did 1725 itself, T38 'only sonnet and opus'. $187 over 142 turns, 24 compactions."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-09-29T12-09-18-956Z_01a0ed11-c165-724f-aac4-882d8149f814.jsonl",
+    "outcome": "good",
+    "note": "Settings redesign iterated with user feedback (rewinds T14/45/47 are design choices), committed and PR reply posted at T94; corrections T21/T30 were small."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-10-06T13-55-55-294Z_01a1117f-df1d-71c4-95bb-d0fbd8f157ae.jsonl",
+    "outcome": "good",
+    "note": "Anti-cheat work reached merge, deploy check and pentest re-test (T87-89); corrections T19/T58 minor (.env choice), 8 interrupts but no abandoned path."
+  },
+  {
+    "session": "/Users/laurenz/.pi/pi-sub-runs/20261006-163417-anticheat-fix/session.jsonl",
+    "outcome": "bad",
+    "earliestSaveTurn": 1,
+    "level": "prompt",
+    "note": "T2 rework opens with 'Revert formatter churn' from T1; rework cost $17.56, hit 3 errors in a row, ended interrupted with no answer. T1 brief did not forbid repo-wide formatting."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-11-09T13-53-45-630Z_01a1c096-1c9d-728e-8492-c76ed2a5141e.jsonl",
+    "outcome": "mixed",
+    "earliestSaveTurn": 5,
+    "level": "prompt",
+    "note": "Exports delivered, but turn 6 revealed a campaign end cutoff (13 Nov 17:00) not stated at turns 1-5; GB export redone (/bin/bash.91). Turn 4 correction was a scope add."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-11-11T13-32-47-857Z_01a1cacf-a370-7755-9e64-4338caf34bbc.jsonl",
+    "outcome": "mixed",
+    "earliestSaveTurn": 6,
+    "level": "prompt",
+    "note": "PR 236 review posted, but turns 6 and 7 were interrupted: ambiguous 'the review' (meant the PR, turn 8 clarifies); cmux browser failed on styles at turn 4."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-11-11T17-20-24-491Z_01a1cba0-05ab-748a-a213-ab778116e3d6.jsonl",
+    "outcome": "mixed",
+    "earliestSaveTurn": 18,
+    "level": "structure",
+    "note": "57 turns, 7 compactions, $35: webhook check turned into impl, review, deploy and backfill. PR 254 merged, prod live, but turns 32 (tests stall), 39-40 (interrupt, correction) cost extra."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-11-16T08-15-33-280Z_01a1e36c-fda0-761f-8c94-6e36a09b4f28.jsonl",
+    "outcome": "good",
+    "note": "PR 255 review drafted and posted as plain comments in 3 turns, no corrections or errors; work memory says review posted."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-11-16T12-35-39-563Z_01a1e45b-1fab-7249-84e1-56a1ca353272.jsonl",
+    "outcome": "good",
+    "note": "PR 247 review with subagent feedback, risk check, and 2-point comment posted in 4 turns; no errors or corrections."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-11-17T09-32-37-211Z_01a1e8d9-e7da-72b5-91b0-97ed23207224.jsonl",
+    "outcome": "good",
+    "note": "CDC vs rollup analysis, show-me page, feedback and ticket advice in 5 turns for $2.47; no errors; ends on an answer to a user question."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-11-17T13-13-46-825Z_01a1e9a4-6249-7756-bce2-9f2cd07c7827.jsonl",
+    "outcome": "good",
+    "note": "Handover read, quiz started, user skipped it at T4 and got the merge checklist for #228; no rewinds or corrections; T1 $3.67 for 53 reads/bash is the cost."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-11-17T15-46-50-683Z_01a1ea30-84bb-72fe-a4d4-9911aec732b8.jsonl",
+    "outcome": "mixed",
+    "earliestSaveTurn": 6,
+    "level": "prompt",
+    "note": "PR #263 and #264 shipped, but T6 asked for same heading then T7 'ignore heading, doesnt apply' after a rewind (~$3.3); T13 and T15 interrupted/errored, 2 compactions, $14.6."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-11-18T14-09-32-407Z_01a1eefd-caf7-7398-9bd5-fd5b671a1152.jsonl",
+    "outcome": "mixed",
+    "earliestSaveTurn": 2,
+    "level": "model",
+    "note": "T2 sonnet scout failed to reach prod replica; T4 user restarted with opus ('sonnet too stupid'); ticket DPSCEP-2261 updated, prototype unbuilt; $8.7 over 17 turns, 2 compactions."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-11-23T14-23-24-975Z_01a208ca-4b2e-77cc-9c8a-c83e18a275c9.jsonl",
+    "outcome": "mixed",
+    "earliestSaveTurn": 6,
+    "level": "tooling",
+    "note": "PR #268 badge delivered, but T6-T11 (~$2.5) lost to herd/jumphost failure from a Spinnaker outage and Jira MCP auth (T4); T3 docker not started, 3 rewinds."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-global-leaderboard-service--/2026-11-23T15-59-07-303Z_01a20921-ea27-74f9-8a41-60969abf6499.jsonl",
+    "outcome": "good",
+    "note": "Hotfix PR #269 opened in 3 turns for $0.65; one interrupt at T2 to say worktree, tests not run locally but user said skip."
+  },
+  {
+    "session": "sessions/--Users-laurenz-Workspace-RedBull-sampling-form-service--/2026-11-23T16-33-26-149Z_01a20941-5484-7615-a4fe-26e9171ddf4e.jsonl",
+    "outcome": "mixed",
+    "earliestSaveTurn": 7,
+    "level": "tooling",
+    "note": "Ticket, WAF PR #326, service PR #50 and prod analysis done, but T7-T13 lost to tunnel/DB credential failures (T9 wrong .env, T10 pasted password); 4 compactions, $12.7."
+  }
+]

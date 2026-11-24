@@ -5,9 +5,11 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "analyze": "node analysis/session-analyzer/src/cli.ts"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.1.0",
     "@mariozechner/pi-coding-agent": "^0.57.1",
     "@sinclair/typebox": "^0.34.0",
     "vitest": "^3.0.0",
