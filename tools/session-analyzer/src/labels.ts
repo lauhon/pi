@@ -69,6 +69,9 @@ export function parseLabels(text: string): ParsedLabels {
 		for (const key of Object.keys(row)) if (!LABEL_KEYS.has(key)) problems.push(`${where}: unknown key "${key}"`);
 		if (!session) problems.push(`${where}: "session" must be a non-empty string`);
 		if (!isOutcome(row.outcome)) problems.push(`${where}: "outcome" must be one of ${OUTCOMES.join(", ")}`);
+		// The worksheet's record template leaves these as null and "", so read those as absent.
+		if (row.earliestSaveTurn === null) delete row.earliestSaveTurn;
+		if (row.level === "") delete row.level;
 		const turn = Number.isInteger(row.earliestSaveTurn) && (row.earliestSaveTurn as number) >= 0 ? (row.earliestSaveTurn as number) : undefined;
 		if (row.earliestSaveTurn !== undefined && turn === undefined) problems.push(`${where}: "earliestSaveTurn" must be a turn index (an integer, 0 or more)`);
 		const level = isLevel(row.level) ? row.level : undefined;
