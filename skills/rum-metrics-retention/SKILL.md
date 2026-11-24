@@ -2,6 +2,7 @@
 name: rum-metrics-retention
 
 description: Manage RUM-based metrics and retention filters for Real User Monitoring data. Create custom metrics from RUM events and control data retention with sampling filters.
+disable-model-invocation: true
 ---
 
 # RUM Metrics & Retention Agent

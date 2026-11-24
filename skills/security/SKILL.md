@@ -2,6 +2,7 @@
 name: security
 
 description: Query security monitoring signals and manage security rules.
+disable-model-invocation: true
 ---
 
 # Security Agent

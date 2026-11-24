@@ -7,6 +7,7 @@ metadata:
   repository: https://github.com/datadog-labs/agent-skills
   tags: datadog,ci,cicd,flaky,flaky-tests,test-optimization
   alwaysApply: "false"
+disable-model-invocation: true
 ---
 
 # Triage Flaky Test

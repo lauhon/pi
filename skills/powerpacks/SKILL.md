@@ -2,6 +2,7 @@
 name: powerpacks
 
 description: Manage Datadog Powerpacks for creating and sharing reusable dashboard widget templates across teams and organizations.
+disable-model-invocation: true
 ---
 
 # Powerpacks Agent

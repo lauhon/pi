@@ -14,6 +14,7 @@ examples:
   - "Can you create a bug report for this?"
   - "I want to request a new feature"
   - "Report this error to the team"
+disable-model-invocation: true
 ---
 
 # DD File Issue Skill

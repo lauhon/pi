@@ -2,6 +2,7 @@
 name: synthetics
 
 description: Manage synthetic tests including listing and viewing test configurations.
+disable-model-invocation: true
 ---
 
 # Synthetics Agent

@@ -14,6 +14,7 @@ examples:
   - "Update incident status to resolved"
   - "Set up our weekly on-call rotation"
   - "Create an escalation policy"
+disable-model-invocation: true
 ---
 
 # Incident Response Agent

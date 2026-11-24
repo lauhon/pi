@@ -8,6 +8,7 @@ metadata:
   tags: datadog,symdb,symbol-database,live-debugger
   globs: ""
   alwaysApply: "false"
+disable-model-invocation: true
 ---
 
 # Datadog Symbol Database

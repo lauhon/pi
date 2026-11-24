@@ -2,6 +2,7 @@
 name: data-deletion
 
 description: Specialized agent for managing GDPR and data privacy compliance through targeted deletion of logs data based on queries and timeframes.
+disable-model-invocation: true
 ---
 
 # Data Deletion Agent

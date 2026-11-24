@@ -2,6 +2,7 @@
 name: data-governance
 
 description: Comprehensive agent for managing Datadog data governance including access control (datasets, IP/domain allowlists, restriction policies), data enrichment (reference tables), and data protection (sensitive data scanner).
+disable-model-invocation: true
 ---
 
 # Data Governance Agent

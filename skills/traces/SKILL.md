@@ -2,6 +2,7 @@
 name: traces
 
 description: Query APM traces and spans for distributed tracing analysis.
+disable-model-invocation: true
 ---
 
 # Traces Agent

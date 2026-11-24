@@ -49,84 +49,22 @@
 - Before finalizing, reconcile explicit requirements against implementation and verification. State unmet or unverified items plainly.
 - Report only completed actions. If a subagent is running asynchronously, do not imply completion; read its output and inspect relevant changes before reporting results.
 - Ask before expanding implementation into incidental fixes outside the agreed scope.
-- Never wait with repeated foreground sleeps or polling turns. Follow "Waiting for a command" below.
+- Never wait with repeated foreground sleeps or polling turns (see the cmux section).
 - Before stateful production, database, or cloud actions, state the target, read/write mode, expected effect, rollback or stop condition, and exact command; await approval.
 - At major phase or topic boundaries in long sessions, checkpoint progress and recommend `/compact` or a named fresh session before continuing.
 
-## Terminal Commands — Use cmux
+## Terminal commands: use cmux
 
-**NEVER run non-terminating commands directly** (dev servers, watchers, docker, tail -f, etc.) — they block the agent.
-
-### Workspace Layout
-
-Every project workspace follows this standard layout:
-
-| Tab | Name | Purpose |
-|-----|------|---------|
-| Pane 1 | **Editor** | nvim — don't send commands here |
-| Pane 2, Tab 1 | **Terminal** | Running commands (tests, builds, lint, dev servers) |
-| Pane 2, Tab 2 | **Browser** | Preview tab |
-| Pane 3 | **π** | Pi agent terminal (you are here) |
-
-### Command Execution Rules
-
-- **Project execution commands** (test, build, lint, typecheck, dev servers — anything that runs project code) → Run via cmux in the **Terminal** tab
-- **Read-only/utility commands** (grep, find, ls, jq, cat, git status, file reads) → Run directly via relevant tools
-
-### How to Use the Terminal Tab
-
-Discover the Terminal surface ref:
-```bash
-cmux tree --json | jq -r '[.windows[].workspaces[] | select(.selected) | .panes[].surfaces[] | select(.title == "Terminal")] | first | .ref'
-```
-
-Run a command and read output:
-```bash
-cmux send --surface <ref> "command\n"
-cmux read-screen --surface <ref> --lines 40
-```
-
-### Waiting for a command
-
-- Fixed delay or shell-checkable condition: one `bash` call, `sleep N && <check>` or `timeout N bash -c 'until <check>; do sleep 5; done'`.
-- Terminal-tab command expected to finish in ≲10 min: end it with a signal and block once on it. Use a unique token per run: a signal is kept until one waiter consumes it, so a reused name can return on a stale signal.
-  ```bash
-  cmux send --surface <ref> "pnpm test; echo \"exit=\$?\"; cmux wait-for -S tests-<unique>\n"
-  cmux wait-for tests-<unique> --timeout 600   # exits 1 on timeout
-  cmux read-screen --surface <ref> --lines 40
-  ```
-- Longer (CI, deploys, long suites): don't block. Append `; cmux notify --title "<task> done" --body "exit=$?"` to the command, end the turn, and tell the user to message you when it fires.
-
-For the full cmux API (notifications, sidebar status, keys, etc.), you can load the `cmux` skill if you need to.
+- **Never run non-terminating commands directly** (dev servers, watchers, docker, `tail -f`); they block the agent.
+- Project execution commands (test, build, lint, typecheck, dev servers, anything that runs project code) run in the cmux **Terminal** tab. Read-only commands (grep, find, ls, jq, git status, file reads) run directly.
+- Wait with one blocking call: `sleep N && <check>`, or a unique `cmux wait-for` signal for Terminal-tab commands; for jobs over ~10 min append `cmux notify` and end the turn. Load the `cmux` skill for the Terminal ref lookup, layout, wait-for and notify patterns, and key names.
+- Browser: always `cmux browser` (load `cmux-browser`), never playwright-cli. Markdown preview: `cmux markdown <file>`.
 
 ## Codemode (restrictive)
 
-- Never use codemode for waits a shell can express, a single tool call, or two sequential calls.
-- Use it only when it replaces ≥3 model turns: polling a non-shell tool (pup_*, MCP, fetch), waiting on several sources (all or first), ≥3 independent parallel calls, or filtering large output before it reaches context.
-- Sleep inside a script with `tools.bash({ command: "sleep N" })`; the sandbox has no timers.
-- Every wait script sets `timeout_ms`, a max iteration count, `max_output_tokens` ≤500, and returns one status object, never per-iteration output.
-
-## Browser Automation — Use cmux browser
-
-**Use `cmux browser` for all browser interactions.** Do NOT use playwright-cli.
-
-```bash
-cmux browser open https://example.com          # open URL in browser split
-cmux browser identify                           # find surface ID
-cmux browser surface:N snapshot --interactive   # inspect page state
-cmux browser surface:N screenshot --out /tmp/page.png
-```
-
-For the full browser automation API (clicking, filling, waiting, tabs, state, etc.), load the `cmux-browser` skill if you need to.
-
-## Markdown Viewer — Use cmux markdown
-
-**Use `cmux markdown` to preview markdown files** with rich formatting (headings, tables, code blocks, lists, blockquotes). The viewer supports live file watching — edits update automatically.
-
-```bash
-cmux markdown open ./path/to/file.md            # open in a formatted viewer panel
-cmux markdown ./path/to/file.md                  # shorthand
-```
+- Never for waits a shell can express, a single tool call, or two sequential calls.
+- Only when it replaces ≥3 model turns: polling a non-shell tool, waiting on several sources, ≥3 independent parallel calls, or filtering large output.
+- Sleep with `tools.bash({ command: "sleep N" })`. Wait scripts set `timeout_ms`, a max iteration count, `max_output_tokens` ≤500, and return one status object.
 
 ## Git Operations
 

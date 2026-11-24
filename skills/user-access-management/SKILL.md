@@ -2,6 +2,7 @@
 name: user-access-management
 
 description: Comprehensive user and team management including users, service accounts, teams, memberships, SCIM, authentication mappings, and permissions.
+disable-model-invocation: true
 ---
 
 # User & Access Management Agent

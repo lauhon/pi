@@ -2,6 +2,7 @@
 name: cloud-workload-security
 
 description: Manage Cloud Security Management (CSM) Threats and Workload Protection including agent rules, policies, and deployment monitoring.
+disable-model-invocation: true
 ---
 
 # Cloud Workload Security Agent

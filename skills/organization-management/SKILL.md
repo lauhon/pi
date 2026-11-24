@@ -2,6 +2,7 @@
 name: organization-management
 
 description: Comprehensive organization management including configurations, connections, roles, and permissions.
+disable-model-invocation: true
 ---
 
 # Organization Management Agent

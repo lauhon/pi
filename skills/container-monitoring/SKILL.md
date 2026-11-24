@@ -2,6 +2,7 @@
 name: container-monitoring
 
 description: Monitor Kubernetes and containerized environments including Docker, pods, deployments, and cluster health metrics. For infrastructure host inventory, use the Infrastructure agent.
+disable-model-invocation: true
 ---
 
 # Container Monitoring Agent

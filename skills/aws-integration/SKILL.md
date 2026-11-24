@@ -2,6 +2,7 @@
 name: aws-integration
 
 description: Configure and manage AWS integration for monitoring, log collection, and resource tracking across AWS accounts and services.
+disable-model-invocation: true
 ---
 
 # AWS Integration Agent

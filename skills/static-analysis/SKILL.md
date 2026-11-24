@@ -2,6 +2,7 @@
 name: static-analysis
 
 description: Manage Static Code Analysis (SAST) and Software Composition Analysis (SCA) for code quality, security vulnerabilities, and dependency management.
+disable-model-invocation: true
 ---
 
 # Static Analysis Agent

@@ -2,6 +2,7 @@
 name: scorecards
 
 description: Manage Datadog Service Scorecards including rules, outcomes, and service evaluation for organizational best practices and compliance tracking.
+disable-model-invocation: true
 ---
 
 # Scorecards Agent

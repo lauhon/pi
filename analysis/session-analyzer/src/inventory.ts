@@ -87,6 +87,22 @@ export interface SourceTotal {
 }
 
 /** Segment[] for one request point: every message in pi's projection, by source. */
+/**
+ * Flat tools that also have an `mcp__<server>__<name>` alias with the same parameter schema (the
+ * description differs only where it names the tool).
+ * `pi-claude-code-use` registers such aliases and drops the flat duplicate from the request it
+ * sends on Anthropic OAuth, so the model sees each of these tools once, under the alias.
+ */
+export function aliasedFlatTools(tools: ReadonlyMap<string, { tool: { parameters?: unknown } }>): Set<string> {
+	const shadowed = new Set<string>();
+	for (const [name, { tool }] of tools) {
+		const match = /^mcp__.+__(.+)$/.exec(name);
+		const flat = match ? tools.get(match[1]) : undefined;
+		if (match && flat && JSON.stringify(flat.tool.parameters ?? {}) === JSON.stringify(tool.parameters ?? {})) shadowed.add(match[1]);
+	}
+	return shadowed;
+}
+
 export function inventoryRequestPoint(rp: RequestPoint, session: Pick<Session, "turnOf">): RequestInventory {
 	const { messages, sourceEntryIds } = rp.context;
 	const age = (entryId: string) => rp.turnIndex - (session.turnOf.get(entryId) ?? rp.turnIndex);
@@ -105,7 +121,9 @@ export function inventoryRequestPoint(rp: RequestPoint, session: Pick<Session, "
 	for (const block of system.content) {
 		segments.push({ source: "system.other", label: "content", entryId: block.entryId, position: block.position, chars: block.text.length, ageTurns: age(block.entryId) });
 	}
+	const shadowed = aliasedFlatTools(system.tools);
 	for (const [name, declared] of system.tools) {
+		if (shadowed.has(name)) continue;
 		const { tool } = declared;
 		const chars = (tool.description ?? "").length + JSON.stringify(tool.parameters ?? {}).length;
 		segments.push({ source: "tool_description", label: name, entryId: declared.entryId, position: declared.position, chars, ageTurns: age(declared.entryId) });

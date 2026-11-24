@@ -7,6 +7,7 @@ metadata:
   repository: https://github.com/datadog-labs/agent-skills
   tags: datadog,docs,llms.txt,dd-docs
   alwaysApply: "false"
+disable-model-invocation: true
 ---
 
 # Datadog Docs

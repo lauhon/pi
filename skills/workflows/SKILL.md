@@ -2,6 +2,7 @@
 name: workflows
 
 description: Manage Datadog Workflow Automation including workflow creation, execution, monitoring, and connection management.
+disable-model-invocation: true
 ---
 
 # Workflow Automation Agent

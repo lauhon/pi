@@ -7,6 +7,7 @@ metadata:
   repository: https://github.com/datadog-labs/agent-skills
   tags: datadog,ci,cicd,flaky,flaky-tests,pipeline
   alwaysApply: "false"
+disable-model-invocation: true
 ---
 
 # Unblock PR

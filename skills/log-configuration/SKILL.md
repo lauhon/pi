@@ -2,6 +2,7 @@
 name: log-configuration
 
 description: Manage Datadog log configuration including archives, pipelines, indexes, and custom destinations for log forwarding to external systems.
+disable-model-invocation: true
 ---
 
 # Log Configuration Agent

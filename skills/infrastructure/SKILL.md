@@ -2,6 +2,7 @@
 name: infrastructure
 
 description: List and manage infrastructure hosts across all environments (VMs, cloud instances, physical servers, container hosts). For container performance monitoring, use the Container Monitoring agent.
+disable-model-invocation: true
 ---
 
 # Infrastructure Agent

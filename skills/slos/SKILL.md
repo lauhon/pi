@@ -2,6 +2,7 @@
 name: slos
 
 description: Manage Service Level Objectives including listing, viewing, and deleting SLOs.
+disable-model-invocation: true
 ---
 
 # SLOs Agent

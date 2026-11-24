@@ -42,6 +42,32 @@ If a separate surface is needed, create it, locate its new ref with `cmux tree -
 - If the command needs complex quoting, SQL, JSON, or multiple shell phases, write a temporary script/payload first and send one simple command to the Terminal.
 - Clear sidebar status/progress after completion.
 
+### Workspace layout
+
+Every project workspace follows this layout:
+
+| Tab | Name | Purpose |
+|-----|------|---------|
+| Pane 1 | **Editor** | nvim, don't send commands here |
+| Pane 2, Tab 1 | **Terminal** | Running commands (tests, builds, lint, dev servers) |
+| Pane 2, Tab 2 | **Browser** | Preview tab |
+| Pane 3 | **π** | Pi agent terminal |
+
+### Waiting for a command
+
+- Fixed delay or shell-checkable condition: one `bash` call, `sleep N && <check>` or `timeout N bash -c 'until <check>; do sleep 5; done'`.
+- Terminal-tab command expected to finish in ≲10 min: end it with a signal and block once on it. Use a unique token per run: a signal is kept until one waiter consumes it, so a reused name can return on a stale signal.
+  ```bash
+  cmux send --surface <ref> "pnpm test; echo \"exit=\$?\"; cmux wait-for -S tests-<unique>\n"
+  cmux wait-for tests-<unique> --timeout 600   # exits 1 on timeout
+  cmux read-screen --surface <ref> --lines 40
+  ```
+- Longer (CI, deploys, long suites): don't block. Append `; cmux notify --title "<task> done" --body "exit=$?"` to the command, end the turn, and tell the user to message you when it fires.
+
+### Keys
+
+`cmux send-key` takes lowercase names such as `enter`, `escape`, `ctrl+c`. Arrow keys are rejected ("Unknown key"); to drive another TUI's menu, type the option's number or letter with `cmux send` instead.
+
 ## Important: Actual CLI vs Docs
 
 The website docs show some commands that differ from the actual CLI:

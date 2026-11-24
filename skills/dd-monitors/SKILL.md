@@ -8,6 +8,7 @@ metadata:
   tags: datadog,monitors,alerting,alerts,dd-monitors
   globs: "**/datadog*.yaml,**/*monitor*"
   alwaysApply: "false"
+disable-model-invocation: true
 ---
 
 # Datadog Monitors

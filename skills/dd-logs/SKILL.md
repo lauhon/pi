@@ -8,6 +8,7 @@ metadata:
   tags: datadog,logs,logging,search,dd-logs
   globs: "**/datadog*.yaml,**/*log*"
   alwaysApply: "false"
+disable-model-invocation: true
 ---
 
 # Datadog Logs

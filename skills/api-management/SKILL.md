@@ -2,6 +2,7 @@
 name: api-management
 
 description: Manage Datadog API keys and Application keys for authentication and programmatic access. Handles creation, listing, updating, and deletion of keys.
+disable-model-invocation: true
 ---
 
 # API Management Agent

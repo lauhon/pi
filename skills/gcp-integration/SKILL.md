@@ -2,6 +2,7 @@
 name: gcp-integration
 
 description: Configure and manage GCP integration for monitoring, log collection, and resource tracking across Google Cloud projects and services.
+disable-model-invocation: true
 ---
 
 # GCP Integration Agent

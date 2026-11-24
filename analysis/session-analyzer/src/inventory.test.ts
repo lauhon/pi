@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SessionBuilder, defaultSections, defaultTools } from "../fixtures/build.ts";
 import { SHAPES } from "../fixtures/shapes.ts";
 import {
+	aliasedFlatTools,
 	groupBySource,
 	inlineSkillName,
 	inventoryDirectory,
@@ -21,6 +22,20 @@ function load(name: keyof typeof SHAPES) {
 function sources(segments: Segment[]): SegmentSource[] {
 	return [...new Set(segments.map((segment) => segment.source))].sort();
 }
+
+describe("aliasedFlatTools", () => {
+	it("drops a flat tool only when an mcp__ alias with the same schema exists", () => {
+		const schema = { type: "object", properties: { path: { type: "string" } } };
+		const tools = new Map<string, { tool: { parameters?: unknown } }>([
+			["hypa_ls", { tool: { parameters: schema } }],
+			["mcp__hypa__hypa_ls", { tool: { parameters: schema } }],
+			["pup_run", { tool: { parameters: schema } }],
+			["mcp__other__pup_run", { tool: { parameters: { type: "object" } } }],
+			["read", { tool: { parameters: schema } }],
+		]);
+		expect([...aliasedFlatTools(tools)]).toEqual(["hypa_ls"]);
+	});
+});
 
 describe("skill attribution helpers", () => {
 	const skills = parseSkillLocations(defaultSections().skills);

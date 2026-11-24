@@ -2,6 +2,7 @@
 name: fleet-automation
 
 description: Manage Datadog Agent fleet automation including agent discovery, configuration deployments, package upgrades, and scheduled maintenance windows.
+disable-model-invocation: true
 ---
 
 # Fleet Automation Agent

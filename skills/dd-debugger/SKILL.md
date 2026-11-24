@@ -8,6 +8,7 @@ metadata:
   tags: datadog,debugger,live-debugger,probes,dd-debugger
   globs: ""
   alwaysApply: "false"
+disable-model-invocation: true
 ---
 
 # Datadog Live Debugger

@@ -2,6 +2,7 @@
 name: service-catalog
 
 description: Manage Datadog Service Catalog including service definitions, dependencies, ownership, and entity relationships.
+disable-model-invocation: true
 ---
 
 # Service Catalog Agent
