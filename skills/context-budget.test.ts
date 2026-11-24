@@ -31,7 +31,8 @@ function frontmatter(text: string): Map<string, string> {
 
 function skills(): Skill[] {
 	return readdirSync(SKILLS_DIR)
-		.filter((dir) => statSync(join(SKILLS_DIR, dir)).isDirectory())
+		// A skill symlinked from another checkout (rb-design) is missing on CI; skip what can't be read.
+		.filter((dir) => statSync(join(SKILLS_DIR, dir), { throwIfNoEntry: false })?.isDirectory() === true)
 		.flatMap((dir) => {
 			const file = join(SKILLS_DIR, dir, "SKILL.md");
 			let text: string;

@@ -194,7 +194,8 @@ now_secs() { date +%s; }
 file_mtime_secs() { # path -> mtime in epoch secs, or empty if missing
   local p=$1
   [[ -e "$p" ]] || { echo ""; return 0; }
-  stat -f %m "$p" 2>/dev/null || stat -c %Y "$p" 2>/dev/null || echo ""
+  # GNU first: on Linux `stat -f` is filesystem stat and prints text, not a time.
+  stat -c %Y "$p" 2>/dev/null || stat -f %m "$p" 2>/dev/null || echo ""
 }
 
 tmux_alive() { # dir -> success if the tmux session for it exists
