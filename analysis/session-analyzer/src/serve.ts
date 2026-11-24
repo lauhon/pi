@@ -314,7 +314,7 @@ export function realCmux(): Cmux | null {
 	if (!onPath) return null;
 	return {
 		async tree() {
-			const out = await run("cmux", ["tree", "--json"]);
+			const out = await run("cmux", ["tree", "--all", "--json"]);
 			if (!out) return null;
 			try {
 				return JSON.parse(out);

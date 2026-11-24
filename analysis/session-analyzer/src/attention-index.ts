@@ -2,7 +2,7 @@
  * The /api/attention payload and the writers behind /api/steer and /api/memory. serve.ts does
  * the HTTP; this module does the work, so tests can call it without a socket.
  */
-import { closeSync, mkdirSync, openSync, readdirSync, statSync, writeSync } from "node:fs";
+import { linkSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	attentionDir,
@@ -202,16 +202,24 @@ type Json = Record<string, unknown>;
 const on = (o: Json) => o.active === true || o.focused === true || o.selected === true;
 const list = (v: unknown): Json[] => (Array.isArray(v) ? (v.filter((x) => typeof x === "object" && x !== null) as Json[]) : []);
 
-/** Title of the surface on the active window, workspace, pane path of `cmux tree --json`. */
+/**
+ * Title of the pi tab the user is looking at, from `cmux tree --all --json`. Each visible window
+ * shows the selected surface of its focused pane; the active window wins, but the view itself often
+ * is the active window (spare monitor), so a non-pi title falls through to the other windows.
+ */
 export function focusedTitle(tree: unknown): string | null {
 	if (typeof tree !== "object" || tree === null) return null;
-	for (const w of list((tree as Json).windows)) {
-		if (!on(w)) continue;
+	const windows = list((tree as Json).windows)
+		.filter((w) => w.visible !== false)
+		.sort((a, b) => Number(on(b)) - Number(on(a)));
+	for (const w of windows) {
 		for (const ws of list(w.workspaces)) {
 			if (!on(ws)) continue;
 			for (const p of list(ws.panes)) {
 				if (!on(p)) continue;
-				for (const sf of list(p.surfaces)) if (on(sf) && typeof sf.title === "string") return sf.title;
+				for (const sf of list(p.surfaces)) {
+					if (on(sf) && typeof sf.title === "string" && parseTitle(sf.title)) return sf.title;
+				}
 			}
 		}
 	}
@@ -230,18 +238,18 @@ export function matchFocused(title: string | null, all: Summary[]): string | nul
 
 let steerCounter = 0;
 
+/** Write to a temp name, then link into place: readers poll `*.md` and must never see a partial file. */
 function writeNew(file: string, text: string): boolean {
+	const tmp = `${file}.${process.pid}.tmp`;
+	writeFileSync(tmp, text);
 	try {
-		const fd = openSync(file, "wx");
-		try {
-			writeSync(fd, text);
-		} finally {
-			closeSync(fd);
-		}
+		linkSync(tmp, file);
 		return true;
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
 		throw error;
+	} finally {
+		unlinkSync(tmp);
 	}
 }
 

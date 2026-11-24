@@ -187,6 +187,17 @@ describe("helpers", () => {
 		expect(focusedTitle(null)).toBeNull();
 	});
 
+	it("looks past the view's own window to the pi tab on the other monitor", () => {
+		const win = (active: boolean, title: string) => ({
+			active,
+			visible: true,
+			workspaces: [{ selected: true, panes: [{ focused: true, surfaces: [{ selected: true, title }] }] }],
+		});
+		expect(focusedTitle({ windows: [win(false, "π - gls"), win(true, "pi context")] })).toBe("π - gls");
+		expect(focusedTitle({ windows: [win(false, "π - gls"), win(true, "π - sfs")] })).toBe("π - sfs");
+		expect(focusedTitle({ windows: [{ ...win(false, "π - gls"), visible: false }] })).toBeNull();
+	});
+
 	it("matches by project and name, null when unknown", () => {
 		const dir = mkdtempSync(join(tmpdir(), "attn-h-"));
 		const f = join(dir, "a.jsonl");
