@@ -21,7 +21,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { fileURLToPath } from "node:url";
 import { groupBySource, inventoryRequestPoint } from "./inventory.ts";
 import { appendVerdict, attentionDir, type Verdict } from "./attention.ts";
-import { buildAttention, focusedTitle, listSummaries, matchFocused, writeSteer, writeSubInbox, type Summary } from "./attention-index.ts";
+import { buildAttention, focusedTitle, listSummaries, matchFocused, sessionRef, writeSteer, writeSubInbox, type Summary } from "./attention-index.ts";
 import { loadSession } from "./load.ts";
 import { applyOps, loadItems, memoryRoot, saveItems } from "../../../extensions/work-memory/store.ts";
 import type { Session } from "./types.ts";
@@ -70,6 +70,15 @@ function guarded(dirs: string[], path: string | null | undefined): string {
 	if (!path) throw new ApiError(400, "missing path");
 	if (!path.endsWith(".jsonl") || !isInside(dirs, path)) throw new ApiError(400, "path is not inside a served directory");
 	return resolve(path);
+}
+
+/** Session file for an opaque ref from /api/attention. Only files inside a served dir can match. */
+export function resolveRef(dirs: string[], ref: string | null | undefined): string {
+	if (!ref || !/^[0-9a-f]{16}$/.test(ref)) throw new ApiError(400, "bad ref");
+	for (const dir of dirs) {
+		for (const file of jsonlFilesSince(dir, 0)) if (sessionRef(file.path) === ref) return file.path;
+	}
+	throw new ApiError(404, "no such session");
 }
 
 // ── cache ──────────────────────────────────────────────────────────────────
@@ -350,7 +359,7 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 	const boot = randomBytes(8).toString("hex");
 	const startedAt = Date.now();
 	const seen = new Set<string>();
-	let focusCache: { at: number; title: string | null } | undefined;
+	let focusCache: { at: number; info: { known: boolean; title: string | null } } | undefined;
 	const clients = new Set<ServerResponse>();
 	const timers = new Map<string, NodeJS.Timeout>();
 	const watchers: FSWatcher[] = [];
@@ -365,17 +374,19 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 		return listSummaries(dirs.flatMap((dir) => jsonlFilesSince(dir, cutoff)));
 	};
 
-	const focusTitle = async (): Promise<string | null> => {
-		if (!cmux) return null;
-		if (focusCache && Date.now() - focusCache.at < FOCUS_TTL_MS) return focusCache.title;
-		let title: string | null = null;
+	/** `known` is false when cmux is missing, rejects the call (detached server) or returns nothing. */
+	const focusInfo = async (): Promise<{ known: boolean; title: string | null }> => {
+		if (!cmux) return { known: false, title: null };
+		if (focusCache && Date.now() - focusCache.at < FOCUS_TTL_MS) return focusCache.info;
+		let info: { known: boolean; title: string | null };
 		try {
-			title = focusedTitle(await cmux.tree());
+			const tree = await cmux.tree();
+			info = tree === null || tree === undefined ? { known: false, title: null } : { known: true, title: focusedTitle(tree) };
 		} catch {
-			title = null;
+			info = { known: false, title: null };
 		}
-		focusCache = { at: Date.now(), title };
-		return title;
+		focusCache = { at: Date.now(), info };
+		return info;
 	};
 
 	/** One cmux notification per catch from a session that is not in focus; existing catches are marked seen first. */
@@ -384,7 +395,9 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 		const fresh = all.flatMap((s) => s.catches.map((c) => ({ s, c, key: `${c.sessionId}:${c.entryId}` }))).filter((x) => !seen.has(x.key));
 		for (const x of fresh) seen.add(x.key);
 		if (first || !cmux || fresh.length === 0) return;
-		const focused = matchFocused(await focusTitle(), all);
+		const focus = await focusInfo();
+		if (!focus.known) return;
+		const focused = matchFocused(focus.title, all);
 		for (const x of fresh) {
 			if (x.s.id === focused || Date.parse(x.c.timestamp) < startedAt) continue;
 			await cmux.notify(`${x.s.project}: assumption`, x.c.decision).catch(() => {});
@@ -526,8 +539,8 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 					const hours = Number(q.get("hours") ?? 24);
 					if (!Number.isFinite(hours) || hours <= 0) throw new ApiError(400, "bad hours");
 					const all = recent(hours);
-					const focused = matchFocused(await focusTitle(), all);
-					return sendJson(res, 200, buildAttention(all, hours, focused, Date.now(), adir));
+					const focus = await focusInfo();
+					return sendJson(res, 200, buildAttention(all, hours, matchFocused(focus.title, all), Date.now(), adir, focus.known));
 				}
 				case "/api/sessions": {
 					const hours = Number(q.get("hours") ?? 24);
@@ -535,12 +548,12 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 					return sendJson(res, 200, listSessions(dirs, hours));
 				}
 				case "/api/session":
-					return sendJson(res, 200, sessionSeries(dirs, q.get("path")));
+					return sendJson(res, 200, sessionSeries(dirs, q.has("ref") ? resolveRef(dirs, q.get("ref")) : q.get("path")));
 				case "/api/request": {
 					const raw = q.get("i");
 					const index = raw === null ? undefined : Number(raw);
 					if (index !== undefined && !Number.isInteger(index)) throw new ApiError(400, "bad i");
-					return sendJson(res, 200, requestDetail(dirs, q.get("path"), index));
+					return sendJson(res, 200, requestDetail(dirs, q.has("ref") ? resolveRef(dirs, q.get("ref")) : q.get("path"), index));
 				}
 				case "/events": {
 					res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });

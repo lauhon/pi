@@ -2,86 +2,99 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pi attention</title>
 <style>
-:root { --bg:#0e1116; --panel:#161b22; --line:#2a313c; --fg:#e6edf3; --dim:#8b949e; --accent:#58a6ff; }
+/* Six colour roles: text, muted, blue (links/focus), amber (decision), red (failure), green (done). Greys are surfaces. */
+:root { --bg:#0e1116; --panel:#161b22; --line:#2a313c; --fg:#e6edf3; --dim:#8b949e; --blue:#58a6ff; --amber:#e3b341; --red:#f85149; --green:#3fb950; }
 * { box-sizing:border-box; }
-html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:15px/1.35 -apple-system,"Segoe UI",sans-serif; overflow:hidden; }
-#right { display:flex; flex-direction:column; padding:10px; overflow:hidden; }
-.row { padding:7px 8px; border-radius:6px; cursor:pointer; border-left:3px solid transparent; }
-.row:hover { background:var(--panel); }
-.row.sel { background:var(--panel); border-left-color:var(--accent); }
-.row .t { display:flex; justify-content:space-between; gap:8px; font-weight:600; }
-.row .t span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.row .s { color:var(--dim); font-size:13px; display:flex; justify-content:space-between; }
-.live { color:#3fb950; } .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:#3fb950; margin-right:6px; box-shadow:0 0 6px #3fb950; }
-button { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font:inherit; cursor:pointer; }
-button.on { border-color:#3fb950; color:#3fb950; }
-h2 { margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); font-weight:600; }
-#main { display:grid; grid-template-rows:1fr 1fr; gap:1px; background:var(--line); }
-#main > div { background:var(--bg); position:relative; min-height:0; padding:8px; }
-svg { width:100%; height:100%; display:block; }
-#head { position:absolute; top:8px; left:12px; right:12px; display:flex; flex-wrap:wrap; gap:4px 16px; justify-content:space-between; color:var(--dim); pointer-events:none; z-index:1; }
-#tip { position:fixed; pointer-events:none; background:#000d; border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-width:420px; font-size:13px; display:none; z-index:5; }
-#tip b { color:#fff; } .sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; }
-.nums { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
-.num { background:var(--panel); border-radius:8px; padding:8px 10px; }
-.num .v { font-size:26px; font-weight:700; } .num .k { color:var(--dim); font-size:12px; }
-.seg { display:flex; gap:6px; padding:4px 0; border-bottom:1px solid var(--line); font-size:13px; align-items:center; }
-.seg .n { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .seg .v { color:var(--dim); font-variant-numeric:tabular-nums; }
-#legend { display:flex; flex-wrap:wrap; gap:3px 10px; font-size:12px; color:var(--dim); margin-top:auto; padding-top:10px; }
-#empty { padding:40px; color:var(--dim); font-size:18px; }
+html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:18px/1.35 -apple-system,"Segoe UI",sans-serif; overflow:hidden; }
+button { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 12px; font:inherit; font-size:16px; cursor:pointer; }
+button:hover { border-color:var(--dim); }
+button:focus-visible, a:focus-visible, .srow:focus-visible, .drow:focus-visible { outline:2px solid var(--blue); outline-offset:1px; }
+button.link { background:none; border:none; padding:0; color:var(--blue); }
+button.link:hover { text-decoration:underline; }
+a { color:var(--blue); }
+.dim { color:var(--dim); }
+.amber { color:var(--amber); } .red { color:var(--red); } .green { color:var(--green); }
 
-#app { display:grid; grid-template-columns:480px 1fr; height:100vh; gap:1px; background:var(--line); }
-#app > div { background:var(--bg); min-height:0; min-width:0; }
-#left { padding:14px 10px; display:flex; flex-direction:column; overflow:hidden; }
+#app { display:grid; grid-template-columns:440px 1fr; grid-template-rows:48px 1fr; height:100vh; gap:1px; background:var(--line); }
+#app > * { background:var(--bg); min-height:0; min-width:0; }
+#top { grid-column:1 / 3; display:flex; align-items:center; gap:22px; padding:0 16px; font-size:16px; color:var(--dim); white-space:nowrap; overflow:hidden; }
+#top h1 { margin:0; font-size:20px; color:var(--fg); font-weight:600; }
+#top .sp { flex:1; }
+#top .new { color:var(--amber); font-weight:600; }
+
+#rail { padding:10px 8px; display:flex; flex-direction:column; overflow:hidden; }
 #slist { overflow-y:auto; flex:1; }
-.srow { padding:9px 10px; border-radius:6px; cursor:pointer; border-left:3px solid transparent; display:grid; grid-template-columns:1fr auto; gap:2px 10px; }
+.srow { height:76px; padding:6px 10px; border-radius:6px; cursor:pointer; border-left:3px solid transparent; display:flex; flex-direction:column; justify-content:center; gap:1px; overflow:hidden; }
 .srow:hover { background:var(--panel); }
-.srow.focus { border-left-color:#58a6ff55; background:#58a6ff0d; }
-.srow .p { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.srow .nm { color:var(--dim); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.srow .meta { text-align:right; color:var(--dim); font-size:13px; font-variant-numeric:tabular-nums; }
-.st { font-size:13px; font-weight:600; }
-.st.working { color:#3fb950; } .st.waiting { color:#e3b341; } .st.idle { color:var(--dim); font-weight:400; }
-.subs { margin:0 0 4px 22px; } .subs .srow { padding:5px 10px; font-size:13px; }
-.tg { cursor:pointer; color:var(--dim); font-size:12px; user-select:none; margin-left:6px; }
-#center { padding:18px 24px; overflow-y:auto; }
-#center h1 { margin:0 0 14px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); font-weight:600; display:flex; justify-content:space-between; }
-#nothing { color:var(--dim); font-size:22px; padding:60px 0; text-align:center; }
-.catch { background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; }
-.catch.hot { border-color:#f0883e; border-left-color:#f0883e; background:#f0883e14; box-shadow:0 0 0 1px #f0883e66; }
-.catch .who { display:flex; gap:10px; align-items:center; color:var(--dim); font-size:13px; }
-.catch .who b { color:var(--fg); }
-.badge { padding:1px 8px; border-radius:10px; background:#2a313c; font-size:12px; color:var(--fg); }
-.badge.schema { background:#a371f733; } .badge.scope { background:#58a6ff33; }
-.catch .dec { font-size:22px; line-height:1.3; margin:8px 0; font-weight:600; }
-.alts { color:var(--dim); font-size:14px; margin-bottom:6px; } .est { color:#3fb950; font-size:13px; margin-bottom:8px; }
-.acts { display:flex; gap:8px; margin-top:8px; } .acts button.v { margin-left:auto; } .acts button.sel { border-color:#3fb950; color:#3fb950; } .acts button.sel.noise { border-color:#8b949e; color:#8b949e; }
-.steer { display:none; margin-top:8px; } .steer.open { display:flex; gap:8px; }
-.steer textarea { flex:1; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; min-height:60px; resize:vertical; }
-.out { margin:6px 0 0 18px; padding:4px 10px; border-left:2px solid var(--line); color:var(--dim); font-size:13px; }
-.out b { color:var(--fg); font-weight:600; }
-.msg { color:#f85149; font-size:13px; margin-top:6px; }
-#drill { position:fixed; inset:0; background:var(--bg); display:none; z-index:10; grid-template-columns:1fr 340px; grid-template-rows:auto 1fr; }
-#drill.open { display:grid; }
-#drillbar { grid-column:1 / 3; display:flex; gap:12px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--line); color:var(--dim); }
-#drillbar button { margin-left:auto; }
+.srow.focus { border-left-color:var(--blue); }
+.srow.sel { background:var(--panel); }
+.srow .l1 { display:flex; justify-content:space-between; gap:10px; font-size:18px; font-weight:600; }
+.srow .l1 > span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.srow .l2, .srow .l3 { display:flex; justify-content:space-between; gap:10px; font-size:16px; color:var(--dim); white-space:nowrap; }
+.srow .st.waiting { color:var(--amber); font-weight:600; }
+.srow .st.working { color:var(--fg); }
+.subs { margin:0 0 6px 20px; }
+.sub { height:44px; padding:3px 10px; cursor:pointer; border-radius:6px; font-size:16px; display:flex; flex-direction:column; justify-content:center; overflow:hidden; color:var(--dim); }
+.sub:hover { background:var(--panel); }
+.sub .l1 { display:flex; justify-content:space-between; gap:10px; color:var(--fg); }
+.sub .l1 > span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.grp { font-size:16px; color:var(--dim); padding:12px 10px 4px; }
+#empty { padding:20px 10px; color:var(--dim); font-size:18px; }
+
+#decide { padding:0 28px; overflow-y:auto; }
+#decide h2 { margin:0; height:64px; display:flex; align-items:center; justify-content:space-between; font-size:24px; font-weight:600; }
+#decide h2 small { font-size:16px; color:var(--dim); font-weight:400; }
+#none { color:var(--dim); font-size:22px; padding:36px 0; }
+.drow { display:flex; align-items:center; gap:18px; border:1px solid var(--line); border-left:4px solid var(--amber); border-radius:8px; padding:12px 16px; margin-bottom:10px; background:var(--panel); cursor:pointer; }
+.drow .body { flex:1; min-width:0; }
+.drow .head { font-size:22px; font-weight:600; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.drow .why { font-size:16px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.drow .meta { font-size:16px; color:var(--dim); margin-top:2px; }
+.drow .tag { color:var(--amber); font-weight:600; }
+.drow.fresh { animation:fade 1.2s ease-out 1; }
+@keyframes fade { from { border-color:var(--amber); background:#e3b34126; } }
+.newlabel { color:var(--amber); font-weight:600; font-size:14px; border:1px solid var(--amber); border-radius:4px; padding:0 5px; margin-right:8px; vertical-align:2px; }
+@media (prefers-reduced-motion: reduce) { .drow.fresh { animation:none; } * { scroll-behavior:auto !important; transition:none !important; } }
+
+/* Inspect panel */
+#panel { position:fixed; top:49px; right:0; bottom:0; width:min(720px, calc(100vw - 460px)); background:var(--bg); border-left:1px solid var(--line); display:none; flex-direction:column; z-index:10; font-size:14px; box-shadow:-8px 0 24px #0008; }
+#panel.open { display:flex; }
+#panelbar { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--line); font-size:16px; }
+#panelbar b { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:18px; }
+#panelbody { flex:1; overflow-y:auto; padding:12px 16px 24px; }
+#panelbody h3 { margin:16px 0 6px; font-size:14px; font-weight:600; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; }
+.nums { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; }
+.num { background:var(--panel); border-radius:8px; padding:6px 10px; }
+.num .v { font-size:20px; font-weight:700; } .num .k { color:var(--dim); font-size:14px; }
+.box { position:relative; background:var(--panel); border-radius:8px; padding:6px; margin-top:10px; }
+#chartbox { height:280px; } #treebox { height:300px; }
+svg { width:100%; height:100%; display:block; }
+#head { position:absolute; top:8px; left:12px; right:12px; display:flex; flex-wrap:wrap; gap:4px 16px; justify-content:space-between; color:var(--dim); pointer-events:none; z-index:1; font-size:14px; }
+#tip { position:fixed; pointer-events:none; background:#000d; border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-width:420px; font-size:14px; display:none; z-index:20; }
+.sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; }
+.seg { display:flex; gap:6px; padding:4px 0; border-bottom:1px solid var(--line); font-size:14px; align-items:center; }
+.seg .n { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .seg .v { color:var(--dim); font-variant-numeric:tabular-nums; }
+#legend { display:flex; flex-wrap:wrap; gap:3px 10px; font-size:14px; color:var(--dim); margin-top:12px; }
 </style>
 </head>
 <body>
 <div id="app">
-  <div id="left"><h2>Sessions · last 24 h</h2><div id="slist"></div></div>
-  <div id="center"><h1><span>Inbox</span><span id="stats"></span></h1><div id="inbox"></div></div>
-</div>
-<div id="drill">
-  <div id="drillbar"><b id="drilltitle"></b><button id="close">Close</button></div>
-  <div id="main"><div id="chartbox"><div id="head"></div><svg id="chart"></svg></div><div id="treebox"><svg id="tree"></svg></div></div>
-  <div id="right">
-    <div class="nums" id="nums"></div>
-    <h2>Largest segments</h2><div id="top"></div>
-    <div id="legend"></div>
+  <div id="top">
+    <h1>Attention</h1>
+    <span id="refreshed"></span>
+    <span id="focus"></span>
+    <span class="sp"></span>
+    <span id="unread"></span>
   </div>
+  <div id="rail"><div id="slist"></div></div>
+  <div id="decide"><h2><span>Decisions</span><small id="dcount"></small></h2><div id="dlist"></div></div>
+</div>
+<div id="panel" role="dialog" aria-label="Inspect">
+  <div id="panelbar"><b id="paneltitle"></b><button id="close">Close</button></div>
+  <div id="panelbody"></div>
 </div>
 <div id="tip"></div>
 <script>
@@ -96,16 +109,22 @@ const SOURCES = Object.keys(COLORS);
 const FIXED = s => s.startsWith("system.") || s === "tool_description";
 const $ = id => document.getElementById(id);
 const NS = "http://www.w3.org/2000/svg";
-const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const clip = (s, n) => { s = String(s || "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
 const fmtK = n => n >= 1e6 ? (n/1e6).toFixed(2)+"M" : n >= 1e3 ? (n/1e3).toFixed(n >= 1e5 ? 0 : 1)+"k" : String(Math.round(n));
 const fmtCost = c => "$" + c.toFixed(c >= 10 ? 1 : 2);
-const ago = ms => { const s = (Date.now()-ms)/1000; return s < 90 ? Math.round(s)+"s" : s < 5400 ? Math.round(s/60)+"m" : Math.round(s/3600)+"h"; };
-
+const ago = ms => { const s = Math.max(0, (Date.now()-ms)/1000); return s < 90 ? Math.round(s)+"s" : s < 5400 ? Math.round(s/60)+"m" : s < 172800 ? Math.round(s/3600)+"h" : Math.round(s/86400)+"d"; };
+const fmtAge = d => d < 1 ? (d * 24 < 1 ? Math.max(1, Math.round(d * 1440)) + "m" : Math.round(d * 24) + "h") : d.toFixed(1) + "d";
+const clock = ms => new Date(ms).toTimeString().slice(0, 8);
 
 const TOKEN = (document.querySelector('meta[name="attention-token"]') || {}).content || "";
-const state = { att:null, path:null, series:null, sel:null, detail:null, open:new Set(), steer:new Set(), msg:{}, cleared:new Set(JSON.parse(localStorage.getItem("cleared") || "[]")) };
 const STATUS = { working:"working", waiting:"waiting for you", idle:"idle" };
-const fmtAge = d => d < 1 ? (d * 24 < 1 ? Math.max(1, Math.round(d * 1440)) + "m" : Math.round(d * 24) + "h") : d.toFixed(1) + "d";
+const KIND = { scope:"Scope", schema:"DB schema", other:"Assumption" };
+const state = {
+  att:null, okAt:0, failed:false, open:new Set(), earlier:false, moreDecisions:false,
+  ref:null, series:null, sel:null, detail:null, title:"",
+  seen:new Set(JSON.parse(localStorage.getItem("attention.seen") || "[]")),
+};
 
 async function api(url) { const r = await fetch(url); if (!r.ok) throw new Error(url + " " + r.status); return r.json(); }
 async function post(url, body) {
@@ -115,98 +134,145 @@ async function post(url, body) {
   return j;
 }
 
+// ── seen / unread: stable catch key, kept in localStorage, set only by opening or marking ──
+function saveSeen() { localStorage.setItem("attention.seen", JSON.stringify([...state.seen].slice(-1000))); }
+function markSeen(keys) { for (const k of keys) state.seen.add(k); saveSeen(); renderHeader(); renderDecisions(); }
+const isOpen = c => !c.verdict && !state.att.outcomes.some(o => o.catchKey === c.key);
+const isNew = c => isOpen(c) && !state.seen.has(c.key);
+
 async function refresh() {
-  const att = await api("/api/attention?hours=24");
-  if (att.focused) {
-    for (const c of att.catches) if (c.sessionId === att.focused) state.cleared.add(c.key);
-    localStorage.setItem("cleared", JSON.stringify([...state.cleared].slice(-500)));
-  }
-  state.att = att;
-  renderSessions(); renderInbox();
+  try {
+    state.att = await api("/api/attention?hours=24");
+    state.okAt = Date.now(); state.failed = false;
+  } catch (e) { state.failed = true; renderHeader(); throw e; }
+  renderHeader(); renderRail(); renderDecisions();
 }
 
-function sessionRow(s, sub) {
+function renderHeader() {
+  const a = state.att;
+  $("refreshed").innerHTML = state.failed ? `<span class="amber">refresh failed, last ok ${state.okAt ? clock(state.okAt) : "never"}</span>` : "refreshed " + (state.okAt ? clock(state.okAt) : "…");
+  if (!a) return;
+  const f = a.sessions.find(s => s.id === a.focused);
+  $("focus").textContent = !a.focusKnown ? "focus unknown" : f ? "focus: " + f.project + (f.name ? " · " + f.name : "") : "focus: no listed session";
+  const n = a.catches.filter(isNew).length;
+  $("unread").innerHTML = n ? `<span class="new">${n} new</span> <button class="link" id="markall">mark all seen</button>` : "";
+  const b = $("markall"); if (b) b.onclick = () => markSeen(a.catches.filter(isNew).map(c => c.key));
+}
+
+// ── sessions rail ──
+function sessionRow(s) {
   const d = document.createElement("div");
-  d.className = "srow" + (state.att.focused === s.id ? " focus" : "");
-  d.title = s.path;
-  const toggle = !sub && s.subs.length ? `<span class="tg" data-t="1">${state.open.has(s.id) ? "▾" : "▸"} ${s.subs.length} sub</span>` : "";
-  d.innerHTML = `<div class="p">${state.att.focused === s.id ? "● " : ""}${esc(sub ? (s.name || "sub-run") : s.project)}${toggle}</div>
-    <div class="meta"><span class="st ${s.status}">${STATUS[s.status]}</span></div>
-    <div class="nm">${esc(sub ? "" : (s.name || "(unnamed)"))}${s.orphan ? " · sub-run" : ""}</div>
-    <div class="meta">${fmtAge(s.ageDays)} · ${fmtCost(s.cost)}</div>`;
-  d.onclick = ev => {
-    if (ev.target.dataset.t) { state.open.has(s.id) ? state.open.delete(s.id) : state.open.add(s.id); renderSessions(); return; }
-    openDrill(s);
+  const focus = state.att.focused === s.id;
+  d.className = "srow" + (focus ? " focus" : "") + (state.ref === s.ref ? " sel" : "");
+  d.tabIndex = 0;
+  const subs = s.subs.length ? `<button class="link" data-t="1">${state.open.has(s.id) ? "▾" : "▸"} ${s.subs.length} sub-run${s.subs.length === 1 ? "" : "s"}</button>` : "<span></span>";
+  const open = s.actionable ? ` · <span class="amber">${s.actionable} open</span>` : "";
+  d.innerHTML = `<div class="l1"><span>${esc(s.project)}${s.name ? ` <span class="dim" style="font-weight:400">· ${esc(clip(s.name, 40))}</span>` : ""}</span><span>${fmtCost(s.cost)}</span></div>
+    <div class="l2"><span><span class="st ${s.status}">${STATUS[s.status]}</span>${open}${focus ? " · in focus" : ""}</span><span>started ${fmtAge(s.ageDays)} ago</span></div>
+    <div class="l3"><span>updated ${ago(s.mtime)} ago</span>${subs}</div>`;
+  const go = ev => {
+    if (ev.target.dataset && ev.target.dataset.t) { state.open.has(s.id) ? state.open.delete(s.id) : state.open.add(s.id); renderRail(); return; }
+    openContext(s);
   };
+  d.onclick = go;
+  d.onkeydown = ev => { if (ev.key === "Enter" && ev.target === d) go(ev); };
   return d;
 }
 
-function renderSessions() {
-  const el = $("slist"); el.innerHTML = "";
+function subRow(s) {
+  const d = document.createElement("div");
+  d.className = "sub"; d.tabIndex = 0;
+  d.innerHTML = `<div class="l1"><span>${esc(s.name || "sub-run")}</span><span>${fmtCost(s.cost)}</span></div><div>${STATUS[s.status]} · updated ${ago(s.mtime)} ago</div>`;
+  d.onclick = () => openContext(s);
+  d.onkeydown = ev => { if (ev.key === "Enter") openContext(s); };
+  return d;
+}
+
+function renderRail() {
+  const el = $("slist"), keep = el.scrollTop;
+  el.innerHTML = "";
   const list = state.att.sessions;
   if (!list.length) { el.innerHTML = '<div id="empty">No session changed in the last 24 hours.</div>'; return; }
-  for (const s of list) {
-    el.appendChild(sessionRow(s, false));
+  const add = s => {
+    el.appendChild(sessionRow(s));
     if (state.open.has(s.id) && s.subs.length) {
       const wrap = document.createElement("div"); wrap.className = "subs";
-      for (const x of s.subs) wrap.appendChild(sessionRow(x, true));
+      for (const x of s.subs) wrap.appendChild(subRow(x));
       el.appendChild(wrap);
     }
+  };
+  const parents = list.filter(s => !s.orphan);
+  for (const s of parents.filter(s => !s.earlier)) add(s);
+  const earlier = parents.filter(s => s.earlier);
+  if (earlier.length) {
+    const b = document.createElement("div"); b.className = "grp";
+    b.innerHTML = `<button class="link">${state.earlier ? "▾" : "▸"} Earlier sessions (${earlier.length})</button>`;
+    b.firstChild.onclick = () => { state.earlier = !state.earlier; renderRail(); };
+    el.appendChild(b);
+    if (state.earlier) for (const s of earlier) add(s);
   }
+  const orphans = list.filter(s => s.orphan);
+  if (orphans.length) {
+    const g = document.createElement("div"); g.className = "grp"; g.textContent = `Sub-runs without a listed parent (${orphans.length})`;
+    el.appendChild(g);
+    for (const s of orphans) el.appendChild(subRow(s));
+  }
+  el.scrollTop = keep;
 }
 
-function isHot(c) { return state.att.focused !== c.sessionId && !c.verdict && !state.cleared.has(c.key); }
-
-function outcomeText(o) {
-  if (o.type === "esc") return `<b>Esc</b> then: ${esc(o.correction || "")}`;
-  if (o.type === "steer") return `<b>Steered</b>: ${esc(o.correction || "")}`;
-  return `<b>Rewind</b>: dropped ${o.requests} request${o.requests === 1 ? "" : "s"}, ${fmtK(o.droppedContextTokens || 0)} context tokens`;
-}
-
-function renderInbox() {
-  const el = $("inbox"), a = state.att;
-  const st = a.stats;
-  $("stats").textContent = `${st.catches} catches · ${st.useful} useful · ${st.noise} noise · ${st.esc} esc · ${st.rewind} rewind`;
-  if (document.activeElement && document.activeElement.tagName === "TEXTAREA") return;
+// ── decisions ──
+const DECISIONS_SHOWN = 5;
+function renderDecisions() {
+  const a = state.att, el = $("dlist");
+  if (!a) return;
+  const open = a.catches.filter(isOpen);
+  $("dcount").textContent = open.length ? `${open.length} open` : "";
   el.innerHTML = "";
-  if (!a.catches.length) { el.innerHTML = '<div id="nothing">Nothing to look at.</div>'; return; }
-  for (const c of a.catches) {
+  if (!open.length) { el.innerHTML = '<div id="none">No decisions need you. Sessions are still listed at left.</div>'; return; }
+  const shown = state.moreDecisions ? open : open.slice(0, DECISIONS_SHOWN);
+  for (const c of shown) {
     const d = document.createElement("div");
-    d.className = "catch" + (isHot(c) ? " hot" : "");
-    d.id = "c-" + c.key;
-    const sav = c.saving ? `<div class="est">Estimate: ${fmtCost(c.saving.cost)} and ${fmtK(c.saving.tokens)} tokens of work after the assumption, before ${c.saving.via === "esc" ? "an Esc correction" : c.saving.via === "rewind" ? "a rewind" : "your steer"}.</div>` : "";
-    const alts = c.alternatives.length ? `<div class="alts">Instead: ${c.alternatives.map(esc).join(" · ")}${c.basis ? ` — ${esc(c.basis)}` : ""}</div>` : (c.basis ? `<div class="alts">${esc(c.basis)}</div>` : "");
-    const outs = a.outcomes.filter(o => o.catchKey === c.key).map(o => `<div class="out">${outcomeText(o)} <span>· ${ago(Date.parse(o.timestamp))} ago</span></div>`).join("");
-    d.innerHTML = `<div class="who"><b>${esc(c.project)}</b><span>${esc(c.name || "")}</span><span class="badge ${c.kind}">${c.kind}</span><span style="margin-left:auto">${ago(Date.parse(c.timestamp))} ago</span></div>
-      <div class="dec">${esc(c.decision)}</div>${alts}${sav}
-      <div class="acts"><button data-a="steer">Steer</button><button data-a="mem">Save to memory</button>
-        <button class="v ${c.verdict === "useful" ? "sel" : ""}" data-a="useful">Useful</button><button class="${c.verdict === "noise" ? "sel noise" : ""}" data-a="noise">Noise</button></div>
-      <div class="steer ${state.steer.has(c.key) ? "open" : ""}"><textarea placeholder="Message to this session (Ctrl+Enter sends)"></textarea><button data-a="send">Send</button></div>
-      <div class="msg">${esc(state.msg[c.key] || "")}</div>${outs}`;
-    const ta = d.querySelector("textarea");
-    const act = async a => {
-      try {
-        if (a === "steer") { state.steer.has(c.key) ? state.steer.delete(c.key) : state.steer.add(c.key); renderInbox(); const t = $("c-" + c.key).querySelector("textarea"); if (t) t.focus(); return; }
-        if (a === "send") {
-          if (!ta.value.trim()) return;
-          await post("/api/steer", { sessionId: c.sessionId, text: ta.value }); state.steer.delete(c.key); state.msg[c.key] = "Sent.";
-        } else if (a === "mem") { await post("/api/memory", { catchKey: c.key }); state.msg[c.key] = "Saved to work memory."; }
-        else { await post("/api/verdict", { catchKey: c.key, verdict: a }); state.cleared.add(c.key); }
-        await refresh();
-      } catch (e) { state.msg[c.key] = "Failed: " + e.message; renderInbox(); }
-    };
-    d.querySelectorAll("button").forEach(b => b.onclick = () => act(b.dataset.a));
-    ta.onkeydown = ev => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) act("send"); };
+    d.className = "drow"; d.tabIndex = 0;
+    const fresh = isNew(c);
+    d.innerHTML = `<div class="body"><div class="head">${fresh ? '<span class="newlabel">New</span>' : ""}${esc(clip(c.decision, 110))}</div>
+      <div class="why">${esc(clip(c.basis || (c.alternatives.length ? "Instead: " + c.alternatives.join(" · ") : ""), 100))}</div>
+      <div class="meta"><span class="tag">${KIND[c.kind] || "Assumption"}</span> · ${esc(c.project)}${c.name ? " · " + esc(c.name) : ""} · ${ago(Date.parse(c.timestamp))} ago</div></div>
+      <button>Open</button>`;
+    const go = () => { markSeen([c.key]); const s = a.sessions.concat(...a.sessions.map(x => x.subs)).find(x => x.ref === c.sessionRef); if (s) openContext(s, c.requestIndex); };
+    d.onclick = go;
+    d.onkeydown = ev => { if (ev.key === "Enter") go(); };
     el.appendChild(d);
   }
+  if (open.length > DECISIONS_SHOWN) {
+    const b = document.createElement("button");
+    b.textContent = state.moreDecisions ? "Fewer" : `More (${open.length - DECISIONS_SHOWN})`;
+    b.onclick = () => { state.moreDecisions = !state.moreDecisions; renderDecisions(); };
+    el.appendChild(b);
+  }
+}
+
+// ── Inspect panel: context view ──
+function openPanel(title) { $("paneltitle").textContent = title; $("panel").classList.add("open"); }
+function closePanel() { $("panel").classList.remove("open"); state.ref = null; if (state.att) renderRail(); }
+
+function openContext(s, at) {
+  state.ref = s.ref; state.sel = at === undefined ? null : at; state.series = null; state.detail = null;
+  openPanel(s.project + (s.name ? " · " + s.name : ""));
+  $("panelbody").innerHTML = `<div class="nums" id="nums"></div>
+    <div class="box" id="chartbox"><div id="head"></div><svg id="chart"></svg></div>
+    <div class="box" id="treebox"><svg id="tree"></svg></div>
+    <h3>Largest segments (estimated tokens)</h3><div id="top"></div><div id="legend"></div>`;
+  $("legend").innerHTML = SOURCES.map(x => `<span><i class="sw" style="background:${COLORS[x]}"></i>${x}</span>`).join("");
+  renderRail();
+  loadSession();
 }
 
 async function loadSession() {
-  if (!state.path) return;
-  const path = state.path;
+  if (!state.ref) return;
+  const ref = state.ref;
   try {
-    const series = await api("/api/session?path=" + encodeURIComponent(path));
-    if (path !== state.path) return;
+    const series = await api("/api/session?ref=" + ref);
+    if (ref !== state.ref) return;
     state.series = series;
     if (state.sel !== null && state.sel >= series.points.length) state.sel = null;
     await loadDetail();
@@ -218,18 +284,10 @@ async function loadDetail() {
   const n = state.series ? state.series.points.length : 0;
   if (!n) { state.detail = null; return; }
   const i = state.sel === null ? n - 1 : state.sel;
-  try { state.detail = await api("/api/request?path=" + encodeURIComponent(state.path) + "&i=" + i); } catch { state.detail = null; }
+  try { state.detail = await api("/api/request?ref=" + state.ref + "&i=" + i); } catch { state.detail = null; }
 }
 
 async function select(i) { state.sel = i; await loadDetail(); render(); }
-
-function openDrill(s) {
-  state.path = s.path; state.sel = null; state.series = null; state.detail = null;
-  $("drilltitle").textContent = s.project + (s.name ? " · " + s.name : "");
-  $("drill").classList.add("open");
-  loadSession();
-}
-function closeDrill() { $("drill").classList.remove("open"); state.path = null; }
 
 function svg(tag, attrs, parent) {
   const e = document.createElementNS(NS, tag);
@@ -250,13 +308,13 @@ function tip(html, ev) {
 function renderChart() {
   const root = $("chart"); root.innerHTML = "";
   const box = $("chartbox").getBoundingClientRect();
-  const W = Math.max(100, box.width - 16), H = Math.max(100, box.height - 16);
+  const W = Math.max(100, box.width - 12), H = Math.max(100, box.height - 12);
   root.setAttribute("viewBox", `0 0 ${W} ${H}`);
   const pts = state.series ? state.series.points : [];
   const head = $("head");
-  if (!pts.length) { head.textContent = "no requests yet"; return; }
-  head.innerHTML = `<span>${esc(state.series.project)}${state.series.name ? " · " + esc(state.series.name) : ""}</span><span>${pts.length} requests · ${state.series.compactions.length} compactions</span>`;
-  const L = 52, B = 22, T = 30, R = 8;
+  if (!pts.length) { head.textContent = state.series ? "no requests yet" : "loading…"; return; }
+  head.innerHTML = `<span>${pts.length} requests · ${state.series.compactions.length} compactions</span><span>context tokens by source (estimates)</span>`;
+  const L = 52, B = 22, T = 34, R = 8;
   const pw = W - L - R, ph = H - T - B;
   const max = Math.max(...pts.map(p => p.contextTokens), 1) * 1.05;
   const x = i => L + (pts.length === 1 ? pw / 2 : (i / (pts.length - 1)) * pw);
@@ -264,7 +322,7 @@ function renderChart() {
   for (let k = 0; k <= 4; k++) {
     const v = (max / 4) * k;
     svg("line", { x1:L, x2:W-R, y1:y(v), y2:y(v), stroke:"#2a313c" }, root);
-    const t = svg("text", { x:L-6, y:y(v)+4, fill:"#8b949e", "font-size":12, "text-anchor":"end" }, root); t.textContent = fmtK(v);
+    const t = svg("text", { x:L-6, y:y(v)+5, fill:"#8b949e", "font-size":14, "text-anchor":"end" }, root); t.textContent = fmtK(v);
   }
   const tokens = pts.map(p => { const o = {}; for (const s of SOURCES) o[s] = p.totalChars ? (p.chars[s] || 0) / p.totalChars * p.contextTokens : 0; return o; });
   const base = pts.map(() => 0);
@@ -279,9 +337,8 @@ function renderChart() {
   let lastLabel = -Infinity;
   for (const c of state.series.compactions) {
     svg("line", { x1:x(c), x2:x(c), y1:T, y2:T+ph, stroke:"#fff", "stroke-dasharray":"4 4", "stroke-width":1.5 }, root);
-    // Label only when it can't collide with the previous one; the dashed line alone marks the rest.
-    if (x(c) - lastLabel < 90) continue;
-    const t = svg("text", { x:x(c)+4, y:T+12, fill:"#fff", "font-size":12 }, root); t.textContent = "compaction";
+    if (x(c) - lastLabel < 110) continue;
+    const t = svg("text", { x:x(c)+4, y:T+14, fill:"#fff", "font-size":14 }, root); t.textContent = "compaction";
     lastLabel = x(c);
   }
   const cur = state.sel === null ? pts.length - 1 : state.sel;
@@ -298,8 +355,8 @@ function renderChart() {
     hover.setAttribute("x1", x(i)); hover.setAttribute("x2", x(i)); hover.removeAttribute("display");
     const turn = state.series.turns.find(t => t.turnIndex === p.turnIndex);
     const rows = SOURCES.filter(s => tokens[i][s] >= 1).sort((a, b) => tokens[i][b] - tokens[i][a])
-      .map(s => `<div><i class="sw" style="background:${COLORS[s]}"></i>${s}: <b>${fmtK(tokens[i][s])}</b></div>`).join("");
-    tip(`<b>request ${p.requestIndex}</b> · turn ${p.turnIndex} · ${fmtK(p.contextTokens)} tokens<br>${esc(p.model)}${rows}${turn && turn.userText ? `<div style="margin-top:6px;color:#8b949e">${esc(turn.userText)}</div>` : ""}`, ev);
+      .map(s => `<div><i class="sw" style="background:${COLORS[s]}"></i>${s}: <b>~${fmtK(tokens[i][s])}</b></div>`).join("");
+    tip(`<b>request ${p.requestIndex + 1} of ${pts.length}</b> · turn ${p.turnIndex} · ${fmtK(p.contextTokens)} tokens<br>${esc(p.model)}${rows}${turn && turn.userText ? `<div style="margin-top:6px;color:#8b949e">${esc(turn.userText)}${turn.userText.length >= 120 ? " […]" : ""}</div>` : ""}`, ev);
   };
   overlay.onmouseleave = () => { hover.setAttribute("display", "none"); tip(null); };
   overlay.onclick = ev => select(at(ev));
@@ -338,7 +395,7 @@ function squarify(items, x, y, w, h) {
 function renderTree() {
   const root = $("tree"); root.innerHTML = "";
   const box = $("treebox").getBoundingClientRect();
-  const W = Math.max(100, box.width - 16), H = Math.max(100, box.height - 16);
+  const W = Math.max(100, box.width - 12), H = Math.max(100, box.height - 12);
   root.setAttribute("viewBox", `0 0 ${W} ${H}`);
   const d = state.detail;
   if (!d) return;
@@ -348,45 +405,39 @@ function renderTree() {
     const s = r.it;
     const g = svg("g", {}, root);
     svg("rect", { x:r.x, y:r.y, width:r.w, height:r.h, fill:COLORS[s.source] || "#666", stroke:"#0e1116", "stroke-width":1.5 }, g);
-    if (r.w > 70 && r.h > 30) {
-      const t = svg("text", { x:r.x+6, y:r.y+17, fill:"#0e1116", "font-size":13, "font-weight":600 }, g);
+    if (r.w > 80 && r.h > 34) {
+      const t = svg("text", { x:r.x+6, y:r.y+18, fill:"#0e1116", "font-size":14, "font-weight":600 }, g);
       const label = s.label || s.source;
-      const max = Math.floor((r.w - 12) / 7.5);
+      const max = Math.floor((r.w - 12) / 8);
       t.textContent = label.length > max ? label.slice(0, Math.max(1, max - 1)) + "…" : label;
-      if (r.h > 48) { const t2 = svg("text", { x:r.x+6, y:r.y+33, fill:"#0e1116", "font-size":12 }, g); t2.textContent = fmtK(s.tokens) + " tok"; }
+      if (r.h > 54) { const t2 = svg("text", { x:r.x+6, y:r.y+35, fill:"#0e1116", "font-size":14 }, g); t2.textContent = "~" + fmtK(s.tokens) + " tok"; }
     }
-    g.onmousemove = ev => tip(`<i class="sw" style="background:${COLORS[s.source]}"></i><b>${s.source}</b>${s.label ? " · " + esc(s.label) : ""}<br>${s.chars.toLocaleString()} chars · ~${s.tokens.toLocaleString()} tokens<br>age ${s.ageTurns} turns · position ${s.position}`, ev);
+    g.onmousemove = ev => tip(`<i class="sw" style="background:${COLORS[s.source]}"></i><b>${s.source}</b>${s.label ? " · " + esc(s.label) : ""}<br>${s.chars.toLocaleString()} chars · ~${s.tokens.toLocaleString()} tokens (estimate)<br>age ${s.ageTurns} turns · position ${s.position}`, ev);
     g.onmouseleave = () => tip(null);
   }
 }
 
-function renderRight() {
+function renderNums() {
   const d = state.detail, nums = $("nums"), top = $("top");
+  if (!nums) return;
   nums.innerHTML = ""; top.innerHTML = "";
   if (!d) return;
-  let fixed = 0;
-  for (const g of d.bySource) if (FIXED(g.source)) fixed += g.chars;
-  const share = d.totalChars ? fixed / d.totalChars : 0;
-  const cost = state.series.points.slice(0, d.requestIndex + 1).reduce((s, p) => s + p.cost, 0);
-  const cells = [["context tokens", fmtK(d.contextTokens)], ["cost so far", fmtCost(cost)], ["fixed share", (share * 100).toFixed(0) + "%"], ["conversation", ((1 - share) * 100).toFixed(0) + "%"],
-    ["request", "#" + d.requestIndex], ["turn", d.turnIndex]];
+  const n = state.series.points.length;
+  const through = state.series.points.slice(0, d.requestIndex + 1).reduce((s, p) => s + p.cost, 0);
+  const total = state.series.points.reduce((s, p) => s + p.cost, 0);
+  const cells = [["request", `${d.requestIndex + 1} of ${n}`], ["turn", d.turnIndex], ["context tokens", fmtK(d.contextTokens)],
+    ["cost through request", fmtCost(through)], ["session total", fmtCost(total)], ["compactions", state.series.compactions.length]];
   for (const [k, v] of cells) nums.insertAdjacentHTML("beforeend", `<div class="num"><div class="v">${v}</div><div class="k">${k}</div></div>`);
   for (const s of [...d.segments].sort((a, b) => b.chars - a.chars).slice(0, 10)) {
-    top.insertAdjacentHTML("beforeend", `<div class="seg"><i class="sw" style="background:${COLORS[s.source]}"></i><span class="n" title="${esc(s.source)}">${esc(s.label || s.source)}</span><span class="v">${fmtK(s.tokens)}</span></div>`);
+    top.insertAdjacentHTML("beforeend", `<div class="seg"><i class="sw" style="background:${COLORS[s.source]}"></i><span class="n" title="${esc(s.source)}">${esc(s.label || s.source)}</span><span class="v">~${fmtK(s.tokens)}</span></div>`);
   }
 }
 
-function renderLegend() {
-  $("legend").innerHTML = SOURCES.map(s => `<span><i class="sw" style="background:${COLORS[s]}"></i>${s}</span>`).join("");
-}
+function render() { if (!$("chart")) return; renderChart(); renderTree(); renderNums(); }
 
-function render() { renderChart(); renderTree(); renderRight(); }
-
-
-$("close").onclick = closeDrill;
-addEventListener("keydown", ev => { if (ev.key === "Escape" && $("drill").classList.contains("open")) closeDrill(); });
-addEventListener("resize", () => { if (state.path) render(); });
-renderLegend();
+$("close").onclick = closePanel;
+addEventListener("keydown", ev => { if (ev.key === "Escape" && $("panel").classList.contains("open") && !/^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName)) closePanel(); });
+addEventListener("resize", () => { if (state.ref) render(); });
 
 function connect() {
   const es = new EventSource("/events");
@@ -396,11 +447,11 @@ function connect() {
   es.onmessage = async ev => {
     const { path } = JSON.parse(ev.data);
     await refresh().catch(() => {});
-    if (path && path === state.path) await loadSession();
+    if (state.ref && path && state.series && state.series.path === path) await loadSession();
   };
 }
 refresh().catch(() => {}).then(connect);
-setInterval(() => refresh().catch(() => {}), 15000);
+setInterval(() => { refresh().catch(() => {}); renderRail(); }, 15000);
 </script>
 </body>
 </html>

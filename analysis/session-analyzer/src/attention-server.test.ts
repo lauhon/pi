@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -107,6 +107,84 @@ describe("/api/attention", () => {
 		write(join(sessions, "new.jsonl"), later("new", "elsewhere"));
 		await new Promise((r) => setTimeout(r, 1500));
 		expect(notes).toEqual([{ title: "gls: assumption", body: "add a nullable column" }]);
+	});
+});
+
+function shaped(id: string, name: string, shape: "waiting" | "working" | "working-catch", hoursAgo = 1) {
+	const b = new SessionBuilder({ id, cwd: "/work/gls", startedAt: new Date(Date.now() - hoursAgo * 3600_000).toISOString() });
+	b.system();
+	b.sessionInfo(name);
+	b.user("go");
+	if (shape === "waiting") b.assistant({ text: "done" });
+	if (shape === "working-catch") b.toolTurn("assumption", assume, "Noted", { usage: { cost: 0.1 } });
+	return b;
+}
+
+describe("rail: status, sort, focus", () => {
+	it("orders waiting, working with a catch, working, idle; groups by last update; hides the tail behind earlier", async () => {
+		const at = (file: string, agoMs: number) => utimesSync(file, new Date(Date.now() - agoMs), new Date(Date.now() - agoMs));
+		const put = (file: string, b: SessionBuilder, agoMs: number) => {
+			write(join(sessions, file), b);
+			at(join(sessions, file), agoMs);
+		};
+		put("idle-old.jsonl", shaped("idle-old", "i0", "waiting", 5), 10 * 60_000);
+		put("work.jsonl", shaped("work", "w", "working"), 30_000);
+		put("work-catch.jsonl", shaped("work-catch", "wc", "working-catch"), 90_000);
+		put("wait-a.jsonl", shaped("wait-a", "wa", "waiting", 1), 20 * 60_000);
+		put("wait-b.jsonl", shaped("wait-b", "wb", "waiting", 1), 10 * 60_000);
+		for (let i = 0; i < 4; i++) put(`idle-${i}.jsonl`, shaped(`idle-${i}`, `i${i}`, "waiting", 6), (2 + i) * 60_000);
+		const run = join(sessions, "run-orphan");
+		write(join(run, "session.jsonl"), shaped("orph", "o", "waiting", 6));
+		writeFileSync(join(run, "parent"), "gone");
+		const { get } = await boot();
+		const body = await get();
+		const list = body.sessions as { id: string; group: string; status: string; earlier: boolean; orphan?: boolean; actionable: number }[];
+		const parents = list.filter((s) => !s.orphan);
+		expect(parents.map((s) => s.id).slice(0, 5)).toEqual(["wait-b", "wait-a", "work-catch", "work", "idle-0"]);
+		expect(parents.map((s) => s.group).slice(0, 5)).toEqual(["waiting", "waiting", "working-catch", "working", "idle"]);
+		expect(parents.find((s) => s.id === "work-catch")!.actionable).toBe(1);
+		expect(parents.filter((s) => s.earlier).map((s) => s.id)).toEqual(["idle-2", "idle-3", "idle-old"]);
+		expect(parents.filter((s) => !s.earlier)).toHaveLength(6);
+		expect(list.find((s) => s.orphan)).toMatchObject({ id: "orph", earlier: false });
+	});
+
+	it("waiting needs a last assistant message under 2 h old", async () => {
+		write(join(sessions, "new.jsonl"), shaped("recent", "r", "waiting", 1));
+		write(join(sessions, "old.jsonl"), shaped("stale", "s", "waiting", 3));
+		const { get } = await boot();
+		const by = Object.fromEntries((await get()).sessions.map((s: { id: string; status: string }) => [s.id, s.status]));
+		expect(by).toEqual({ recent: "waiting", stale: "idle" });
+	});
+
+	it("focus is unknown when cmux fails or answers null; known when the tree answers", async () => {
+		write(join(sessions, "a.jsonl"), mainSession("main-1", "reset", "/work/gls"));
+		const failing: Cmux = { tree: async () => Promise.reject(new Error("access denied")), notify: async () => {} };
+		running = await startServer({ dirs: [sessions], port: 0, attentionDir: adir, cmux: failing });
+		expect(JSON.parse((await http("GET", "/api/attention")).text)).toMatchObject({ focusKnown: false, focused: null });
+		await running.close();
+		running = undefined;
+		const { get } = await boot();
+		expect(await get()).toMatchObject({ focusKnown: false, focused: null });
+		await running!.close();
+		running = undefined;
+		tree = { windows: [] };
+		expect(await (await boot()).get()).toMatchObject({ focusKnown: true, focused: null });
+	});
+
+	it("serves refs, never paths, and resolves a ref only inside the served dirs", async () => {
+		write(join(sessions, "a.jsonl"), mainSession("main-1", "reset", "/work/gls"));
+		const { get } = await boot();
+		const body = await get();
+		expect(JSON.stringify(body)).not.toContain(root);
+		const ref = body.sessions[0].ref as string;
+		expect(ref).toMatch(/^[0-9a-f]{16}$/);
+		const series = await http("GET", `/api/session?ref=${ref}`);
+		expect(series.status).toBe(200);
+		expect(JSON.parse(series.text).points.length).toBeGreaterThan(0);
+		expect((await http("GET", `/api/request?ref=${ref}&i=0`)).status).toBe(200);
+		expect((await http("GET", `/api/session?ref=${"0".repeat(16)}`)).status).toBe(404);
+		expect((await http("GET", "/api/session?ref=../../etc/passwd")).status).toBe(400);
+		expect((await http("GET", "/api/session?path=/etc/passwd")).status).toBe(400);
 	});
 });
 

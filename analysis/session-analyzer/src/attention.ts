@@ -12,6 +12,8 @@ import type { RequestPoint, Session } from "./types.ts";
 export const STEER_PREFIX = "[from attention view] ";
 export const WORKING_MS = 3 * 60_000;
 export const IDLE_MS = 30 * 60_000;
+/** A session only counts as "waiting for you" while its last assistant message is younger than this. */
+export const WAITING_MAX_MS = 2 * 3_600_000;
 export const LINK_TURNS = 3;
 const CORRECTION_CHARS = 160;
 
@@ -223,14 +225,31 @@ export function lastShape(session: Session): Shape {
 	return "waiting";
 }
 
-export function statusFrom(shape: Shape, mtimeMs: number, now = Date.now()): Status {
+/** Timestamp of the last assistant message, or null when there is none. */
+export function lastAssistantMs(session: Session): number | null {
+	for (let i = session.entries.length - 1; i >= 0; i--) {
+		const e = session.entries[i];
+		if (!isAssistantEntry(e)) continue;
+		const t = Date.parse(e.timestamp);
+		return Number.isFinite(t) ? t : null;
+	}
+	return null;
+}
+
+/**
+ * working: the last entry is mid-turn and the file changed within 3 min.
+ * waiting: the agent stopped and its last message is under 2 h old, or a mid-turn file went quiet
+ *   for 3 to 30 min (a stalled run needs a look too).
+ * idle: everything else.
+ */
+export function statusFrom(shape: Shape, mtimeMs: number, now = Date.now(), lastAssistant: number | null = null): Status {
 	const age = now - mtimeMs;
-	if (age > IDLE_MS) return "idle";
-	return shape === "working" && age <= WORKING_MS ? "working" : "waiting";
+	if (shape === "working") return age <= WORKING_MS ? "working" : age <= IDLE_MS ? "waiting" : "idle";
+	return now - (lastAssistant ?? mtimeMs) < WAITING_MAX_MS ? "waiting" : "idle";
 }
 
 export function sessionStatus(session: Session, mtimeMs: number, now = Date.now()): Status {
-	return statusFrom(lastShape(session), mtimeMs, now);
+	return statusFrom(lastShape(session), mtimeMs, now, lastAssistantMs(session));
 }
 
 export function projectOf(session: Session, path: string): string {

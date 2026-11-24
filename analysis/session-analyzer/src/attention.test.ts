@@ -132,7 +132,7 @@ describe("rewind outcomes", () => {
 });
 
 describe("status", () => {
-	const now = Date.parse("2026-08-01T12:00:00Z");
+	const now = Date.parse("2026-08-01T11:00:00Z");
 	const mk = (end: (b: SessionBuilder) => void) => {
 		const b = new SessionBuilder({ id: "x" });
 		b.system();
@@ -152,7 +152,13 @@ describe("status", () => {
 	it("stalled work shape (3 to 30 min) shows as waiting; 30 min of silence is idle", () => {
 		expect(sessionStatus(mk(() => {}), now - 10 * 60_000, now)).toBe("waiting");
 		expect(sessionStatus(mk(() => {}), now - 31 * 60_000, now)).toBe("idle");
-		expect(sessionStatus(mk((b) => b.assistant({ text: "done" })), now - 31 * 60_000, now)).toBe("idle");
+	});
+	it("waiting needs a last assistant message under 2 h old, whatever the file mtime", () => {
+		const done = mk((b) => b.assistant({ text: "done" }));
+		const at = Date.parse("2026-08-01T10:00:10Z");
+		expect(sessionStatus(done, at, at + 119 * 60_000)).toBe("waiting");
+		expect(sessionStatus(done, at, at + 121 * 60_000)).toBe("idle");
+		expect(sessionStatus(done, at + 100 * 60_000, at + 121 * 60_000)).toBe("idle");
 	});
 });
 

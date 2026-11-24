@@ -2,6 +2,7 @@
  * The /api/attention payload and the writers behind /api/steer and /api/memory. serve.ts does
  * the HTTP; this module does the work, so tests can call it without a socket.
  */
+import { createHash } from "node:crypto";
 import { linkSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -9,6 +10,7 @@ import {
 	catchKey,
 	extractCatches,
 	extractOutcomes,
+	lastAssistantMs,
 	lastShape,
 	linkOutcomes,
 	nameOf,
@@ -37,6 +39,8 @@ export interface Summary {
 	cost: number;
 	contextTokens: number;
 	shape: Shape;
+	/** Timestamp of the last assistant message; null when there is none. */
+	lastAssistantMs: number | null;
 	mtime: number;
 	size: number;
 	catches: (Catch & { saving: Saving | null })[];
@@ -72,6 +76,7 @@ export function summarize(path: string, mtime: number, size: number): Summary | 
 		cost: totalCost(session),
 		contextTokens: points[points.length - 1]?.usage.contextTokens ?? 0,
 		shape: lastShape(session),
+		lastAssistantMs: lastAssistantMs(session),
 		mtime,
 		size,
 		catches: catches.map((c) => ({ ...c, saving: savingFor(c, outcomes, session) })),
@@ -97,16 +102,33 @@ export function listSummaries(files: { path: string; mtimeMs: number }[]): Summa
 	return out;
 }
 
+/** Opaque, stable reference for a session file; the page never needs (or shows) the path. */
+export function sessionRef(path: string): string {
+	return createHash("sha256").update(path).digest("hex").slice(0, 16);
+}
+
+export type RailGroup = "waiting" | "working-catch" | "working" | "idle";
+const GROUP_RANK: Record<RailGroup, number> = { waiting: 0, "working-catch": 1, working: 2, idle: 3 };
+/** Parent sessions shown in the rail before "Earlier sessions". */
+export const RAIL_LIMIT = 6;
+
 export interface SessionView {
 	id: string;
-	path: string;
+	ref: string;
+	cwd: string;
 	project: string;
 	name: string | null;
 	status: Status;
+	group: RailGroup;
+	/** Beyond the rail limit: shown under "Earlier sessions". */
+	earlier: boolean;
 	ageDays: number;
 	cost: number;
 	mtime: number;
+	lastAssistantMs: number | null;
 	contextTokens: number;
+	/** Catches on this session still open to a decision. */
+	actionable: number;
 	subs: SessionView[];
 	/** Sub-run whose parent is not among the listed sessions. */
 	orphan?: boolean;
@@ -115,28 +137,42 @@ export interface SessionView {
 function view(s: Summary, now: number): SessionView {
 	return {
 		id: s.id,
-		path: s.path,
+		ref: sessionRef(s.path),
+		cwd: s.cwd,
 		project: s.project,
 		name: s.sub ? s.sub.name : s.name,
-		status: statusFrom(s.shape, s.mtime, now),
+		status: statusFrom(s.shape, s.mtime, now, s.lastAssistantMs),
+		group: "idle",
+		earlier: false,
 		ageDays: Math.max(0, (now - s.firstMs) / 86_400_000),
 		cost: s.cost,
 		mtime: s.mtime,
+		lastAssistantMs: s.lastAssistantMs,
 		contextTokens: s.contextTokens,
+		actionable: 0,
 		subs: [],
 	};
 }
 
 export interface AttentionPayload {
 	now: number;
+	/** False when cmux did not answer: nothing is marked seen by focus and no notification is sent. */
+	focusKnown: boolean;
 	focused: string | null;
 	sessions: SessionView[];
-	catches: (Catch & { key: string; project: string; name: string | null; verdict: "useful" | "noise" | null; saving: Saving | null })[];
-	outcomes: (Outcome & { project: string; name: string | null })[];
+	catches: (Omit<Catch, "sessionPath"> & { key: string; sessionRef: string; project: string; name: string | null; verdict: "useful" | "noise" | null; saving: Saving | null })[];
+	outcomes: (Omit<Outcome, "sessionPath"> & { sessionRef: string; project: string; name: string | null })[];
 	stats: { catches: number; useful: number; noise: number; esc: number; rewind: number; steer: number };
 }
 
-export function buildAttention(all: Summary[], hours: number, focused: string | null, now = Date.now(), dir = attentionDir()): AttentionPayload {
+export function buildAttention(
+	all: Summary[],
+	hours: number,
+	focused: string | null,
+	now = Date.now(),
+	dir = attentionDir(),
+	focusKnown = true,
+): AttentionPayload {
 	const cutoff = now - hours * 3_600_000;
 	const views = new Map<string, SessionView>();
 	for (const s of all) if (!s.sub) views.set(s.id, view(s, now));
@@ -152,7 +188,6 @@ export function buildAttention(all: Summary[], hours: number, focused: string | 
 		}
 	}
 	const byRecent = (a: SessionView, b: SessionView) => b.mtime - a.mtime;
-	sessions.sort(byRecent);
 	for (const v of sessions) v.subs.sort(byRecent);
 
 	const verdicts = readVerdicts(dir);
@@ -160,20 +195,24 @@ export function buildAttention(all: Summary[], hours: number, focused: string | 
 	const outcomes: AttentionPayload["outcomes"] = [];
 	for (const s of all) {
 		const label = { project: s.project, name: s.sub ? s.sub.name : s.name };
-		for (const c of s.catches) {
+		const ref = sessionRef(s.path);
+		for (const { sessionPath: _p, ...c } of s.catches) {
 			if (Date.parse(c.timestamp) < cutoff) continue;
-			catches.push({ ...c, key: catchKey(c), ...label, verdict: verdicts.get(catchKey(c))?.verdict ?? null });
+			catches.push({ ...c, key: catchKey(c), sessionRef: ref, ...label, verdict: verdicts.get(catchKey(c))?.verdict ?? null });
 		}
-		for (const o of s.outcomes) if (Date.parse(o.timestamp) >= cutoff) outcomes.push({ ...o, ...label });
+		for (const { sessionPath: _p, ...o } of s.outcomes) if (Date.parse(o.timestamp) >= cutoff) outcomes.push({ ...o, sessionRef: ref, ...label });
 	}
+	const listed = sessions.filter((v) => v.mtime >= cutoff || v.subs.some((x) => x.mtime >= cutoff));
+	rankSessions(listed, catches, all);
 	const newest = (a: { timestamp: string }, b: { timestamp: string }) => Date.parse(b.timestamp) - Date.parse(a.timestamp);
 	catches.sort(newest);
 	outcomes.sort(newest);
 	const count = (t: Outcome["type"]) => outcomes.filter((o) => o.type === t).length;
 	return {
 		now,
+		focusKnown,
 		focused,
-		sessions: sessions.filter((v) => v.mtime >= cutoff || v.subs.some((x) => x.mtime >= cutoff)),
+		sessions: listed,
 		catches,
 		outcomes,
 		stats: {
@@ -185,6 +224,28 @@ export function buildAttention(all: Summary[], hours: number, focused: string | 
 			steer: count("steer"),
 		},
 	};
+}
+
+/**
+ * Rail order: waiting for you, then working with an open catch, then other working, then idle;
+ * within a group by last update. Only the first RAIL_LIMIT sessions stay in the rail.
+ */
+function rankSessions(sessions: SessionView[], catches: AttentionPayload["catches"], all: Summary[]): void {
+	const handledOutcome = new Set<string>();
+	for (const s of all) for (const o of s.outcomes) if (o.catchKey) handledOutcome.add(o.catchKey);
+	const open = new Map<string, number>();
+	for (const c of catches) {
+		if (c.verdict || handledOutcome.has(c.key)) continue;
+		open.set(c.sessionId, (open.get(c.sessionId) ?? 0) + 1);
+	}
+	for (const v of sessions) {
+		v.actionable = [v, ...v.subs].reduce((n, x) => n + (open.get(x.id) ?? 0), 0);
+		v.group = v.status === "waiting" ? "waiting" : v.status === "working" ? (v.actionable > 0 ? "working-catch" : "working") : "idle";
+	}
+	sessions.sort((a, b) => GROUP_RANK[a.group] - GROUP_RANK[b.group] || b.mtime - a.mtime);
+	// Orphan sub-runs get their own labelled group and never take a rail slot.
+	let slot = 0;
+	for (const v of sessions) v.earlier = !v.orphan && slot++ >= RAIL_LIMIT;
 }
 
 // ── focus ──────────────────────────────────────────────────────────────────
