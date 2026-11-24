@@ -1,0 +1,80 @@
+{
+  "mcp__dps_intel|https://dps-intel-mcp.eu-central-1.cep-production.redbullaws.com/mcp": {
+    "serverUrl": "https://dps-intel-mcp.eu-central-1.cep-production.redbullaws.com/mcp",
+    "discovery": {
+      "authorizationServerUrl": "https://dps-intel-mcp.eu-central-1.cep-production.redbullaws.com",
+      "authorizationServerMetadata": {
+        "issuer": "https://dps-intel-mcp.eu-central-1.cep-production.redbullaws.com",
+        "authorization_endpoint": "https://convex-api.cep.redbull.com/site/dps-mcp/oauth/authorize",
+        "token_endpoint": "https://convex-api.cep.redbull.com/site/dps-mcp/oauth/token",
+        "registration_endpoint": "https://convex-api.cep.redbull.com/site/dps-mcp/oauth/register",
+        "revocation_endpoint": "https://convex-api.cep.redbull.com/site/dps-mcp/oauth/revoke",
+        "response_types_supported": [
+          "code"
+        ],
+        "response_modes_supported": [
+          "query"
+        ],
+        "grant_types_supported": [
+          "authorization_code",
+          "refresh_token"
+        ],
+        "token_endpoint_auth_methods_supported": [
+          "none"
+        ],
+        "revocation_endpoint_auth_methods_supported": [
+          "none"
+        ],
+        "code_challenge_methods_supported": [
+          "S256"
+        ],
+        "authorization_response_iss_parameter_supported": true,
+        "client_id_metadata_document_supported": true,
+        "scopes_supported": [
+          "dps:mcp",
+          "offline_access"
+        ]
+      },
+      "resourceMetadata": {
+        "resource": "https://dps-intel-mcp.eu-central-1.cep-production.redbullaws.com/mcp",
+        "resource_name": "DPS MCP",
+        "authorization_servers": [
+          "https://dps-intel-mcp.eu-central-1.cep-production.redbullaws.com"
+        ],
+        "scopes_supported": [
+          "dps:mcp",
+          "offline_access"
+        ],
+        "bearer_methods_supported": [
+          "header"
+        ]
+      }
+    },
+    "clientInformation": {
+      "client_id": "dpsc_xlleNVcfQ9_bdZcq5Bqry5c1Vz_QdcoMkQa6aG_3ojo",
+      "client_id_issued_at": 1794237608,
+      "client_name": "pi",
+      "redirect_uris": [
+        "http://127.0.0.1:49863/callback"
+      ],
+      "grant_types": [
+        "authorization_code",
+        "refresh_token"
+      ],
+      "response_types": [
+        "code"
+      ],
+      "token_endpoint_auth_method": "none"
+    },
+    "oauthState": "ca4f9a8e7326a3a18875fef685fe3889312a9e4ffab40918a52c3b822a703da2",
+    "codeVerifier": "3yaleITajWVpHjPPiESf6pwOCnbptZ6y2diaWRR5pto",
+    "tokens": {
+      "refresh_token": "dpsrt_APZ-JuQJbYzqOpRz3OSEnr0bTsb1Mf1lMGClwnj8AxQ",
+      "access_token": "dpsat_dD4oXghZfPn7FoY0JKNcGxuweqXSn6J1n0hSKex_8g4",
+      "token_type": "Bearer",
+      "expires_in": 3599,
+      "scope": "dps:mcp offline_access"
+    },
+    "tokensExpireAt": 1795530361592
+  }
+}

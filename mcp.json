@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "dps-intel": {
+      "url": "https://dps-intel-mcp.eu-central-1.cep-production.redbullaws.com/mcp"
+    }
+  }
+}
