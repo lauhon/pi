@@ -24,7 +24,7 @@ h2 { margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.0
 #main { display:grid; grid-template-rows:1fr 1fr; gap:1px; background:var(--line); }
 #main > div { background:var(--bg); position:relative; min-height:0; padding:8px; }
 svg { width:100%; height:100%; display:block; }
-#head { position:absolute; top:8px; left:12px; right:12px; display:flex; justify-content:space-between; color:var(--dim); pointer-events:none; z-index:1; }
+#head { position:absolute; top:8px; left:12px; right:12px; display:flex; flex-wrap:wrap; gap:4px 16px; justify-content:space-between; color:var(--dim); pointer-events:none; z-index:1; }
 #tip { position:fixed; pointer-events:none; background:#000d; border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-width:420px; font-size:13px; display:none; z-index:5; }
 #tip b { color:#fff; } .sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; }
 .nums { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
@@ -171,9 +171,13 @@ function renderChart() {
     svg("path", { d, fill:COLORS[s], "fill-opacity":.85 }, root);
     for (let i = 0; i < pts.length; i++) base[i] = top[i];
   }
+  let lastLabel = -Infinity;
   for (const c of state.series.compactions) {
     svg("line", { x1:x(c), x2:x(c), y1:T, y2:T+ph, stroke:"#fff", "stroke-dasharray":"4 4", "stroke-width":1.5 }, root);
+    // Label only when it can't collide with the previous one; the dashed line alone marks the rest.
+    if (x(c) - lastLabel < 90) continue;
     const t = svg("text", { x:x(c)+4, y:T+12, fill:"#fff", "font-size":12 }, root); t.textContent = "compaction";
+    lastLabel = x(c);
   }
   const cur = state.sel === null ? pts.length - 1 : state.sel;
   svg("line", { x1:x(cur), x2:x(cur), y1:T, y2:T+ph, stroke:"#58a6ff", "stroke-width":2 }, root);
