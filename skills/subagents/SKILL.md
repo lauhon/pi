@@ -58,7 +58,10 @@ undrained work.
 ## Role → model defaults
 
 Default is `github-copilot/claude-sonnet-5.5` (no `--model` needed). Use GitHub Copilot models,
-not the `anthropic` provider, which bills the Claude subscription quota. Pass `--model` only to deviate:
+not the `anthropic` provider, which bills the Claude subscription quota. Exception: work on the pi
+harness itself (`~/.pi/agent`: extensions, skills, analyzer, AGENTS.md) uses the `anthropic/*`
+equivalent of the role below (`anthropic/claude-sonnet-5-5`, `-haiku-5-5`, `-opus-5-5`).
+Pass `--model` only to deviate:
 
 | Role | Model | Notes |
 |------|-------|-------|
