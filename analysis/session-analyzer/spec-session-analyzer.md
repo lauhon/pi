@@ -76,13 +76,13 @@ re-check against real files in `sessions/` ran on 2026-11-24 (see "Open question
 | F8 | Live extension API: `turn_end` and `agent_before_settle` are boundary events carrying `context.llmMessages` (the exact request), `message`, `toolResults`, `outcome`; handlers may return `entries` (`custom`, `custom_message`, `context_edit`, `compaction`) and `continue: true`. `input` can `transform` or mark input `handled`. `ctx.modelRegistry.complete()` and `streamSimple()` make nested model calls. | Step 6 (live adapter) and the deferred model checks have their hooks. Nothing in steps 1-5 needs them. |
 | F9 | `@earendil-works/pi-coding-agent` latest on npm is 1.1.0, which is also `settings.json` `lastChangelogVersion`. Extensions import it at runtime through pi's own loader. `extensions/premium-usage.disabled/*.ts` still import the old `@mariozechner/pi-coding-agent` for types. | Pinned to `1.1.0` as a devDependency (exact). `pi --version` could not be run where step 1 was done; confirm the pin on the machine that runs pi. The old package stays until the parked extension drops it. |
 | F10 | The August audit parsed `model`, `usage`, tool-call, tool-error and `stopReason` fields locally, then reviewed 40 sessions in eight batches by hand. Its findings: a few sessions dominate cost (top 5 = 81%), only 2 compactions in 40 sessions, contexts up to 314k tokens, 200 tool errors of which 73 missing paths and 55 immediate identical retries, 52 responses over 2,000 characters. | Every one of those is an observable below. The first run of the analyzer should reproduce those numbers for the same period as its acceptance test. |
-| F11 | Node 22 runs `.ts` files directly (type stripping), and `npm run analyze` is `node tools/session-analyzer/src/cli.ts`. 1.1.0: importing the package from a plain script works. | No extra runtime dependency. The analyzer uses erasable TypeScript only: `import type` for types, no enums, no parameter properties. |
+| F11 | Node 22 runs `.ts` files directly (type stripping), and `npm run analyze` is `node analysis/session-analyzer/src/cli.ts`. 1.1.0: importing the package from a plain script works. | No extra runtime dependency. The analyzer uses erasable TypeScript only: `import type` for types, no enums, no parameter properties. |
 | F12 | 1.1.0 (`agent-session.js`): `/skill:name args` is expanded inside the user message to `<skill name="..." location="...">body</skill>` followed by the args. A model-initiated load is a `read` (or `bash`) of the `<location>` path listed in the `skills` section, which only carries name, description and location. | Two attribution rules cover skills: a tool result for a listed location, and a user message starting with `<skill name=`. |
 
 ## Architecture
 
 ```
-tools/session-analyzer/
+analysis/session-analyzer/
   spec-session-analyzer.md     this file
   src/types.ts                 the data contract below, plain shapes only
   src/load.ts                  file -> Session (header, entries, active branch, request points)
@@ -114,8 +114,8 @@ Rules:
 - Sizes: character counts per segment, `usage` for the true total per request. Display segment
   shares as fractions of the `usage` total. Never estimate tokens per segment with a tokenizer;
   proportions are what the design work needs and chars are provider-neutral.
-- Run through root scripts: `npm run analyze -- <args>`. Add `tools/**/*.ts` to `tsconfig.json`
-  `include` and `tools/**/*.test.ts` to the vitest `include` list so CI covers it with the existing
+- Run through root scripts: `npm run analyze -- <args>`. Add `analysis/**/*.ts` to `tsconfig.json`
+  `include` and `analysis/**/*.test.ts` to the vitest `include` list so CI covers it with the existing
   `test.yml`.
 
 ### Data contract
@@ -510,7 +510,7 @@ does badly and a browser does well. It reads the JSON contract above, so the UI 
 | 2 | `inventory.ts`; `inventory <file> [--turn N]` and `inventory <dir>` | For any session: "what filled the window at turn N" and for a directory: average share by source. First surprises written to the Decisions or a new "Findings" section. Done 2026-10-11 on fixtures. |
 | 3 | `observables.ts`, `rank.ts`; `summary <file>`, `summary <dir>`, `rank <dir>` | Per-turn table has the observables as columns. Directory summary reproduces the August audit's numbers for its period within rounding. Code done 2026-10-11; reproduction run done, every residual is the deleted sub-runs (see "Observables"). |
 | 4 | `reports/session-labels.json` | At least 20 sessions labeled, every bad one with `earliestSaveTurn` and `level`; `labels` checks exactly this. Worksheet and check done 2026-10-13; 23 sessions labeled 2026-11-24. |
-| 5 | A "Decisions" entry in this spec naming the branch taken | Labels cluster read; the cheap fix applied, or the rule heatmap started, or the live checks justified with the replay numbers. Draft D7 proposed 2026-11-24, owner to decide. |
+| 5 | A "Decisions" entry in this spec naming the branch taken | Labels cluster read; the cheap fix applied, or the rule heatmap started, or the live checks justified with the replay numbers. D7 accepted 2026-11-24: the cheap fixes. |
 | 6 | Live adapter extension reading `ctx.sessionManager` and `context`; `/ablate`; web view last | Widget shows step 3 counts live; `/ablate` opens a branch and prints the observable diff. |
 
 Steps 1 to 3 are code against the documented format and run anywhere with fixtures. Steps 2
@@ -535,11 +535,13 @@ onward only become interesting against real files in `sessions/` on the machine 
 - D1 Offline over files first, live adapter later. The same functions serve both.
 - D2 No model calls before step 5.
 - D3 Character counts per segment, `usage` for totals, no tokenizer.
-- D4 Lives in `tools/`, not `extensions/`, so pi does not load it as an extension.
+- D4 Lives in `analysis/`, not `extensions/`, so pi does not load it as an extension. Moved from `tools/` on
+  2026-11-24: pi 1.5 treats `~/.pi/agent/tools/` as a legacy custom-tools dir and stops every start at a
+  "Press any key" warning.
 - D5 One request point per assistant message on the active branch; forks reported separately.
 - D6 pi's own loader and projection for parsing, pinned to the installed pi version, with a
   conformance test so a pi upgrade that changes projection rules shows up as a failing test.
-- D7 (**Proposed, owner to decide**, 2026-11-24) Step 5 branch: the cheap fixes, no live checks.
+- D7 (**Accepted** 2026-11-24) Step 5 branch: the cheap fixes, no live checks.
   Labels: 23 sessions, $954 in total (`reports/session-labels.json`). There are 10 good, 12 mixed and 1 bad;
   all 23 were labeled by a model in one pass and only the bad one was checked by hand.
 
