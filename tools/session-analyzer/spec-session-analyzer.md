@@ -90,6 +90,7 @@ tools/session-analyzer/
   src/observables.ts           turn -> Observables; Session -> SessionSummary
   src/rank.ts                  SessionSummary -> bad-signal score, for the labeling pass
   src/labels.ts                the step 4 worksheet (evidence, turns in excerpt) and the labels file check
+  src/memory.ts                the work-memory log (`~/.work-memory/items.jsonl`) -> items per session, cost per item
   src/model.ts                 canonical model ids: one model, one row
   src/sanitize.ts              session -> same-size copy with text bodies replaced
   src/report.ts                JSON out, terminal tables
@@ -434,6 +435,26 @@ Tooling (2026-10-13, `labels.ts`):
   with the sessions the rank and summary runs of 2026-10-12 named: by cost the $187, $84, $81,
   $71 and $62 September sessions, the $109 and $90 July sessions, the audit's $71.50 session,
   the $52 and $23 August sessions; by rank the `anticheat-fix` sub-run.
+
+## Work memory (addition outside the step plan)
+
+The work-memory extension keeps `items.jsonl`: one work item per line, with `done`, `status` and
+`links`; links ending in `.jsonl` are absolute session paths. The tool reads it, never writes it.
+`--memory <path>` overrides the default (`$WORK_MEMORY_DIR/items.jsonl`, else
+`~/.work-memory/items.jsonl`); a missing file means no memory. Parsing copies the extension's
+`isItem`/`parseItems` (broken lines skipped), and a test parses one fixture with both.
+
+- `label <file>`: a `work memory:` line after the next-session line, one entry per item that
+  links the session: `id [open|done] title: status (+N other sessions)`, or `none`. `--json`
+  has `memory: [...]`. An item still open after several sessions says more about the outcome
+  than one session does.
+- `memory [<dir>...]` (default `sessions`): one row per item by cost: sessions, turns,
+  requests, cost, first and last session date, open/done, title. A last row sums the sessions
+  no item links. Only sessions under the given dirs count, so `linkedSessions` in `--json` can
+  exceed `sessions`. A session linked by two items counts in both.
+- `labels <json> <dir>...`: an `item` column (ids) in the unlabeled lists.
+
+Paths match with `path.resolve` on both sides, so relative dirs work from any cwd.
 
 ## Deferred: model-based checks
 
