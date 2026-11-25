@@ -4,7 +4,7 @@
  * below, never any other file. Session files contain secrets, so every `path` must resolve inside
  * a served directory.
  *
- *   GET /                         the page (web/index.html)
+ *   GET /                         the page (web/index.html); also /memory, /memory/<id>, /decision/<catchKey>, /session/<ref>
  *   GET /api/sessions?hours=24    sessions changed in the last N hours, newest first
  *   GET /api/session?path=        one row per request: tokens and chars by source
  *   GET /api/request?path=&i=     the segments of request i (default last); both take ref= (from /api/attention) instead of path=
@@ -325,6 +325,24 @@ export interface ServeOptions {
 const MAX_BODY = 16 * 1024;
 const FOCUS_TTL_MS = 3000;
 const LOOKUP_HOURS = 24 * 14;
+
+const PAGE_SEGMENTS: Record<string, RegExp> = { decision: /^[\w-]+:[\w-]+$/, memory: /^[a-z0-9-]{1,80}$/, session: /^[0-9a-f]{16}$/ };
+
+/** Paths the page serves itself; it renders the panel from the URL. Anything else is a 404. */
+export function isPageRoute(pathname: string): boolean {
+	if (pathname === "/" || pathname === "/memory") return true;
+	const parts = pathname.split("/");
+	if (parts.length !== 3 || parts[0] !== "") return false;
+	const pattern = PAGE_SEGMENTS[parts[1]!];
+	if (!pattern || !parts[2]) return false;
+	let segment: string;
+	try {
+		segment = decodeURIComponent(parts[2]);
+	} catch {
+		return false;
+	}
+	return pattern.test(segment);
+}
 const MEMORY_DEBOUNCE_MS = 300;
 
 function run(cmd: string, args: string[]): Promise<string | null> {
@@ -598,13 +616,13 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 			}
 			if (req.method !== "GET") throw new ApiError(405, "GET or POST only");
 			const q = url.searchParams;
+			if (isPageRoute(url.pathname)) {
+				res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+				const html = readFileSync(join(here, "web", "index.html"), "utf8");
+				res.end(html.replace("</head>", () => `<meta name="attention-token" content="${token}">\n<meta name="attention-boot" content="${boot}">\n</head>`));
+				return;
+			}
 			switch (url.pathname) {
-				case "/": {
-					res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-					const html = readFileSync(join(here, "web", "index.html"), "utf8");
-					res.end(html.replace("</head>", () => `<meta name="attention-token" content="${token}">\n<meta name="attention-boot" content="${boot}">\n</head>`));
-					return;
-				}
 				case "/api/attention": {
 					const hours = Number(q.get("hours") ?? 24);
 					if (!Number.isFinite(hours) || hours <= 0) throw new ApiError(400, "bad hours");

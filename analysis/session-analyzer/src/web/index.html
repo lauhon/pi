@@ -136,7 +136,7 @@ svg { width:100%; height:100%; display:block; }
   <div id="decide"><h2><span>Decisions</span><small id="dcount"></small></h2><div id="memwarn"></div><div id="dlist"></div></div>
 </div>
 <div id="panel" role="dialog" aria-label="Inspect">
-  <div id="panelbar"><b id="paneltitle"></b><button id="close">Close</button></div>
+  <div id="panelbar"><b id="paneltitle"></b><button id="copylink">Copy link</button><button id="close">Close</button></div>
   <div id="panelbody"></div>
 </div>
 <div id="tip"></div>
@@ -165,7 +165,7 @@ const STATUS = { working:"working", waiting:"waiting for you", idle:"idle" };
 const KIND = { scope:"Scope", schema:"DB schema", other:"Assumption" };
 const state = {
   att:null, okAt:0, failed:false, open:new Set(), earlier:false, moreDecisions:false,
-  ref:null, series:null, sel:null, detail:null, title:"", panel:null, openSources:new Set(), history:false, shown:new Set(),
+  ref:null, series:null, sel:null, detail:null, title:"", panel:null, openSources:new Set(), history:false, shown:new Set(), wide:null, sessErr:null, reqMissing:null,
   steers:JSON.parse(localStorage.getItem("attention.steers") || "{}"), steerState:{}, drafts:{}, msg:{},
   mem:{ q:"", state:"relevant", repo:"", items:[], version:"", counts:null, readAt:0, skipped:0, expanded:null, undo:null, pick:null, msg:"", summary:null, repos:[], session:null },
   seen:new Set(JSON.parse(localStorage.getItem("attention.seen") || "[]")),
@@ -216,8 +216,8 @@ function sessionRow(s) {
     <div class="l3"><span>updated ${ago(s.mtime)} ago${s.memoryCount ? ` · <button class="link" data-mem="1" title="open work-memory items linking this session">${s.memoryCount} memory</button>` : ""}</span>${subs}</div>`;
   const go = ev => {
     if (ev.target.dataset && ev.target.dataset.t) { state.open.has(s.id) ? state.open.delete(s.id) : state.open.add(s.id); renderRail(); return; }
-    if (ev.target.dataset && ev.target.dataset.mem) { openMemory(null, { ref: s.ref, label: s.name ? `${s.project} · ${clip(s.name, 40)}` : s.project }); return; }
-    openContext(s);
+    if (ev.target.dataset && ev.target.dataset.mem) { nav(memUrl({ state:"open", session:s.ref })); return; }
+    nav(sessionUrl(s.ref));
   };
   d.onclick = go;
   d.onkeydown = ev => { if (ev.key === "Enter" && ev.target === d) go(ev); };
@@ -228,8 +228,8 @@ function subRow(s) {
   const d = document.createElement("div");
   d.className = "sub"; d.tabIndex = 0;
   d.innerHTML = `<div class="l1"><span>${esc(s.name || "sub-run")}</span><span>${fmtCost(s.cost)}</span></div><div>${STATUS[s.status]} · updated ${ago(s.mtime)} ago</div>`;
-  d.onclick = () => openContext(s);
-  d.onkeydown = ev => { if (ev.key === "Enter") openContext(s); };
+  d.onclick = () => nav(sessionUrl(s.ref));
+  d.onkeydown = ev => { if (ev.key === "Enter") nav(sessionUrl(s.ref)); };
   return d;
 }
 
@@ -267,9 +267,11 @@ function renderRail() {
 
 // ── decisions ──
 const DECISIONS_SHOWN = 5;
-const catchByKey = k => state.att.catches.find(c => c.key === k);
+const catchByKey = k => [state.att, state.wide].filter(Boolean).map(a => a.catches.find(c => c.key === k)).find(Boolean);
+const attOf = c => state.att && state.att.catches.includes(c) ? state.att : state.wide;
+const sessionPool = () => [state.att, state.wide].filter(Boolean).flatMap(a => a.sessions.concat(...a.sessions.map(x => x.subs)));
 const allSessions = () => state.att.sessions.concat(...state.att.sessions.map(x => x.subs));
-const sessionOf = c => allSessions().find(x => x.ref === c.sessionRef);
+const sessionOf = c => sessionPool().find(x => x.ref === c.sessionRef);
 
 function steerLine(key) {
   const st = state.steerState[key];
@@ -292,8 +294,8 @@ function decisionRow(c, extra, handled) {
     <div class="why">${esc(clip(c.basis || (c.alternatives.length ? "Instead: " + c.alternatives.join(" · ") : ""), 100))}</div>
     <div class="meta"><span class="${handled ? "" : "tag"}">${label}</span> · ${esc(c.project)}${c.name ? " · " + esc(c.name) : ""} · ${ago(Date.parse(c.timestamp))} ago${more}${steer ? " · " + steer : ""}</div></div>
     ${handled ? "" : '<button class="act pri" data-a="steer">Steer</button>'}`;
-  d.onclick = ev => openCatch(c.key, ev.target.dataset && ev.target.dataset.a === "steer");
-  d.onkeydown = ev => { if (ev.key === "Enter" && ev.target === d) openCatch(c.key); };
+  d.onclick = ev => nav(catchUrl(c.key), { steer: ev.target.dataset && ev.target.dataset.a === "steer" });
+  d.onkeydown = ev => { if (ev.key === "Enter" && ev.target === d) nav(catchUrl(c.key)); };
   return d;
 }
 
@@ -376,32 +378,38 @@ function renderMemoryGlance() {
     const b = document.createElement("button");
     b.className = "link amber";
     b.textContent = `Work memory: ${m.atRisk.length} open item${m.atRisk.length === 1 ? "" : "s"} drop${m.atRisk.length === 1 ? "s" : ""} by ${m.atRisk.reduce((d, i) => i.prunesOn < d ? i.prunesOn : d, "9999")}: ${clip(first.title, 70)}${m.atRisk.length > 1 ? ` and ${m.atRisk.length - 1} more` : ""}`;
-    b.onclick = () => openMemory(first.id);
+    b.onclick = () => nav("/memory/" + encodeURIComponent(first.id));
     warn.appendChild(b);
   }
 }
 
-function openMemory(focusId, session) {
-  const m = state.mem;
+function openMemory(spec) {
+  const m = state.mem, focusId = spec.focusId || null;
   state.ref = null; state.panel = { kind:"memory" };
-  m.pick = null; m.msg = ""; m.session = session || null;
-  if (focusId) { m.q = focusId; m.state = "open"; m.repo = ""; m.expanded = focusId; }
-  if (session) { m.q = ""; m.state = "open"; m.repo = ""; m.expanded = null; }
+  m.pick = null; m.msg = ""; m.notFound = false; m.focus = focusId;
+  if (focusId) { m.q = focusId; m.state = "open"; m.repo = ""; m.expanded = focusId; m.session = null; }
+  else {
+    m.q = spec.q || ""; m.state = MEM_STATES.some(x => x[0] === spec.state) ? spec.state : "relevant"; m.repo = spec.repo || ""; m.expanded = null;
+    const ref = spec.session && /^[0-9a-f]{16}$/.test(spec.session) ? spec.session : null;
+    const known = ref && sessionPool().find(x => x.ref === ref);
+    m.session = ref ? { ref, label: known ? (known.name ? `${known.project} · ${clip(known.name, 40)}` : known.project) : "session " + ref } : null;
+  }
   openPanel("Work memory");
   $("panelbody").innerHTML = `<div id="memtool"><input type="text" id="memq" placeholder="Search title, status, repo, links" aria-label="Search work memory">
     <div id="memsess" class="dim"></div><div class="tabs" id="memtabs"></div><div class="row2"><label class="dim" for="memrepo">Repo</label><select id="memrepo" style="background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px;font-size:14px"></select></div></div>
     <div id="memtoast"></div><div id="memlist" style="margin-top:10px"></div><div id="memfoot" class="claim"></div>`;
   $("memq").value = m.q;
-  $("memq").oninput = () => { clearTimeout(m.qt); m.qt = setTimeout(() => { m.q = $("memq").value; loadMemory(); }, 250); };
-  loadMemory(focusId);
+  $("memq").oninput = () => { clearTimeout(m.qt); m.qt = setTimeout(() => { m.q = $("memq").value; m.focus = null; setUrl(memUrl(), true); loadMemory(); }, 250); };
+  loadMemory();
 }
 
-async function loadMemory(focusId) {
-  const m = state.mem;
+async function loadMemory() {
+  const m = state.mem, focusId = m.focus;
   const url = st => "/api/memory/items?state=" + st + "&query=" + encodeURIComponent(m.q) + "&repo=" + encodeURIComponent(m.repo);
   try {
     let r = await api(url(m.state));
-    if (focusId && !r.items.length) { m.state = "done"; r = await api(url("done")); }
+    if (focusId && !r.items.length && m.state !== "done") { m.state = "done"; r = await api(url("done")); }
+    m.notFound = !!focusId && !r.items.length;
     if (m.session) r.items = r.items.filter(i => i.sessionLinks.some(l => l.ref === m.session.ref));
     Object.assign(m, { items: r.items, version: r.version, counts: r.counts, readAt: r.readAt, skipped: r.skippedLines, msg: "" });
   } catch (e) { m.msg = "Could not read work memory: " + e.message; }
@@ -412,14 +420,14 @@ function renderMemTools() {
   const m = state.mem, tabs = $("memtabs");
   if (!tabs) return;
   tabs.innerHTML = MEM_STATES.map(([k, label]) => `<button data-st="${k}" class="${m.state === k ? "on" : ""}">${label}${m.counts ? " " + m.counts[k] : ""}</button>`).join("");
-  tabs.querySelectorAll("button").forEach(b => b.onclick = () => { m.state = b.dataset.st; m.expanded = null; m.session = null; loadMemory(); });
+  tabs.querySelectorAll("button").forEach(b => b.onclick = () => { m.state = b.dataset.st; m.expanded = null; m.session = null; m.focus = null; setUrl(memUrl(), false); loadMemory(); });
   const ses = $("memsess");
   ses.innerHTML = m.session ? `Linked to ${esc(m.session.label)} <button class="link">Show all</button>` : "";
-  if (m.session) ses.querySelector("button").onclick = () => { m.session = null; loadMemory(); };
+  if (m.session) ses.querySelector("button").onclick = () => { m.session = null; m.focus = null; setUrl(memUrl(), false); loadMemory(); };
   const sel = $("memrepo");
   sel.innerHTML = '<option value="">All repos</option>' + m.repos.map(([cwd, name]) => `<option value="${esc(cwd)}">${esc(name)}</option>`).join("");
   sel.value = m.repo;
-  sel.onchange = () => { m.repo = sel.value; loadMemory(); };
+  sel.onchange = () => { m.repo = sel.value; m.focus = null; setUrl(memUrl(), false); loadMemory(); };
 }
 
 function chip(l) {
@@ -442,7 +450,7 @@ function renderMemList() {
   renderMemToast();
   $("memfoot").textContent = m.msg || (m.readAt ? `Read ${clock(m.readAt)}${m.skipped ? ` · ${m.skipped} unreadable line${m.skipped === 1 ? "" : "s"} skipped` : ""} · estimates of pruning follow the 60-day rule and keepUntil` : "");
   $("memfoot").className = m.msg ? "red" : "claim";
-  el.innerHTML = m.items.length ? "" : `<div class="dim">No items here.</div>`;
+  el.innerHTML = m.items.length ? "" : m.notFound ? `<div class="amber">Memory item <code>${esc(m.focus)}</code> not found. It was deleted or never existed.</div>` : `<div class="dim">No items here.</div>`;
   for (const it of m.items) el.appendChild(memRow(it));
 }
 
@@ -470,7 +478,7 @@ function memRow(it) {
     else if (ev.target.dataset && ev.target.dataset.t) { m.expanded = null; m.pick = null; renderMemList(); }
   };
   d.onkeydown = ev => { if (ev.key === "Enter" && ev.target.dataset && ev.target.dataset.t) { m.expanded = open ? null : it.id; renderMemList(); } };
-  d.querySelectorAll("button[data-ref]").forEach(b => b.onclick = () => openContextRef(b.dataset.ref, it.title));
+  d.querySelectorAll("button[data-ref]").forEach(b => b.onclick = () => nav(sessionUrl(b.dataset.ref)));
   d.querySelectorAll("button[data-a]").forEach(b => b.onclick = () => memAction(it, b.dataset.a));
   const ta = d.querySelector("textarea");
   if (ta) ta.oninput = () => { m.pick.text = ta.value; };
@@ -533,21 +541,64 @@ async function undoDone() {
 }
 
 function openContextRef(ref, title) {
-  const s = state.att && allSessions().find(x => x.ref === ref);
-  openContext(s || { ref, project: title, name: null });
+  nav(sessionUrl(ref));
 }
 
 // ── Inspect panel ──
-// Only the memory panel survives a reload: it may stay open on the monitor all day, and a server restart reloads the page.
-function openPanel(title) { $("paneltitle").textContent = title; $("panel").classList.add("open"); localStorage.setItem("attention.panel", state.panel && state.panel.kind === "memory" ? "memory" : ""); }
-function closePanel() { $("panel").classList.remove("open"); state.ref = null; state.panel = null; localStorage.removeItem("attention.panel"); if (state.att) renderRail(); }
+// The URL decides which panel is open; see route().
+const catchUrl = key => "/decision/" + encodeURIComponent(key);
+const sessionUrl = (ref, request) => "/session/" + ref + (request ? "?request=" + request : "");
+function memUrl(o) {
+  const m = state.mem, f = o || { state: m.state, q: m.q, repo: m.repo, session: m.session && m.session.ref };
+  if (!o && m.focus) return "/memory/" + encodeURIComponent(m.focus);
+  const p = new URLSearchParams();
+  if (f.state && f.state !== "relevant") p.set("state", f.state);
+  if (f.q) p.set("q", f.q);
+  if (f.repo) p.set("repo", f.repo);
+  if (f.session) p.set("session", f.session);
+  const qs = p.toString();
+  return "/memory" + (qs ? "?" + qs : "");
+}
+const currentUrl = () => location.pathname + location.search;
+function setUrl(url, replace) { if (url !== currentUrl()) history[replace ? "replaceState" : "pushState"](null, "", url); }
+function nav(url, opts) { setUrl(url, false); route(opts || {}); }
+
+function route(opts = {}) {
+  const u = new URL(location.href), seg = u.pathname.split("/").slice(1).map(x => { try { return decodeURIComponent(x); } catch { return x; } });
+  const q = u.searchParams;
+  if (seg[0] === "decision" && seg[1]) return openCatch(seg[1], opts.steer);
+  if (seg[0] === "memory") return openMemory({ focusId: seg[1], state: q.get("state"), q: q.get("q"), repo: q.get("repo"), session: q.get("session") });
+  if (seg[0] === "session" && seg[1]) return openContext(seg[1], q.get("request"));
+  dismissPanel();
+}
+
+function openPanel(title) { $("paneltitle").textContent = title; $("panel").classList.add("open"); }
+function dismissPanel() { $("panel").classList.remove("open"); state.ref = null; state.panel = null; if (state.att) renderRail(); }
+function closePanel() { nav("/"); }
+async function copyLink() {
+  const url = location.origin + currentUrl(), b = $("copylink");
+  try { await navigator.clipboard.writeText(url); }
+  catch {
+    const t = document.createElement("textarea"); t.value = url; document.body.appendChild(t); t.select();
+    try { document.execCommand("copy"); } catch { /* shown below */ } t.remove();
+  }
+  b.textContent = "Copied"; setTimeout(() => { b.textContent = "Copy link"; }, 1500);
+}
 
 // Catch detail: the full claim, its source, linked outcomes, and the actions with drafts.
-function openCatch(key, steer) {
+async function openCatch(key, steer) {
+  const p = state.panel = { kind:"catch", key };
+  state.ref = null;
+  openPanel("Decision");
+  if (state.att) renderRail();
+  if (!catchByKey(key)) {
+    $("panelbody").innerHTML = '<p class="dim">Looking back 14 days…</p>';
+    try { state.wide = await api("/api/attention?hours=336"); } catch { state.wide = null; }
+    if (state.panel !== p) return;
+  }
   const c = catchByKey(key);
-  if (!c) return;
+  if (!c) { renderCatchPanel(true); return; }
   markSeen([key]);
-  state.ref = null; state.panel = { kind:"catch", key };
   if (steer && state.drafts[key] === undefined) state.drafts[key] = `About your assumption "${clip(c.decision, 110)}": `;
   openPanel(`${KIND[c.kind] || "Assumption"} · ${c.project}${c.name ? " · " + c.name : ""}`);
   renderCatchPanel(true);
@@ -562,11 +613,12 @@ function outcomeText(o) {
 
 function renderCatchPanel(force) {
   const p = state.panel, c = p && catchByKey(p.key), body = $("panelbody");
-  if (!c) { body.innerHTML = '<p class="dim">This catch is no longer in the last 24 hours.</p>'; return; }
+  if (!c) { body.innerHTML = '<p class="amber">Decision not found. It is older than 14 days, its session file is gone, or the link is wrong.</p>'; return; }
   if (!force && /^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName) && body.contains(document.activeElement)) return;
   const s = sessionOf(c);
   const idle = s && s.status === "idle";
-  const outs = state.att.outcomes.filter(o => o.catchKey === c.key);
+  const outs = attOf(c).outcomes.filter(o => o.catchKey === c.key);
+  const older = attOf(c) !== state.att ? '<div class="claim">Older than 24 hours, so it is not in the decision list.</div>' : "";
   const alts = c.alternatives.length ? `<div class="claim">Other readings: ${c.alternatives.map(esc).join(" · ")}</div>` : "";
   const sav = c.saving ? `<div class="out">Observed work between this catch and your ${c.saving.via === "esc" ? "Esc correction" : c.saving.via === "rewind" ? "rewind" : "steer"}: ${fmtCost(c.saving.cost)} and ${fmtK(c.saving.tokens)} tokens over ${c.saving.requests} request${c.saving.requests === 1 ? "" : "s"}. Estimate: input, output and cache-write tokens; not money saved.</div>` : "";
   const steerSt = steerLine(c.key);
@@ -577,7 +629,7 @@ function renderCatchPanel(force) {
     <label class="f">Status</label><input type="text" id="memstatus" maxlength="500" value="${esc(md.status ?? draft.status)}">
     <div class="row2"><button data-a="save">Save to memory</button></div>`;
   $("panelbody").innerHTML = `
-    <div class="dec">${esc(c.decision)}</div>${alts}
+    ${older}<div class="dec">${esc(c.decision)}</div>${alts}
     ${c.basis ? `<div class="claim">Agent's claim, not verified: ${esc(c.basis)}</div>` : ""}
     <div class="claim" style="margin-top:6px">Request ${c.requestIndex + 1} · turn ${c.turnIndex} · ${new Date(c.timestamp).toLocaleString()} · ${esc(KIND[c.kind] || "")}</div>
     <div class="row2"><button data-a="context">Open context at this request</button></div>
@@ -600,8 +652,8 @@ function renderCatchPanel(force) {
 async function catchAction(c, a) {
   state.msg[c.key] = "";
   try {
-    if (a === "context") { const s = sessionOf(c); if (s) openContext(s, c.requestIndex); return; }
-    if (a === "item") return openMemory(c.saved.itemId);
+    if (a === "context") return nav(sessionUrl(c.sessionRef, c.requestIndex + 1));
+    if (a === "item") return nav("/memory/" + encodeURIComponent(c.saved.itemId));
     if (a === "send") {
       const text = (state.drafts[c.key] || "").trim();
       if (!text) { state.msg[c.key] = "Write a message first."; return renderCatchPanel(true); }
@@ -621,11 +673,14 @@ async function catchAction(c, a) {
   renderCatchPanel(true);
 }
 
-function openContext(s, at) {
+function openContext(ref, request) {
+  const s = sessionPool().find(x => x.ref === ref);
+  const n = request === null || request === undefined ? null : /^[1-9]\d{0,8}$/.test(request) ? Number(request) : NaN;
   state.panel = { kind:"context" };
-  state.ref = s.ref; state.sel = at === undefined ? null : at; state.openSources = new Set(); state.series = null; state.detail = null;
-  openPanel(s.project + (s.name ? " · " + s.name : ""));
-  $("panelbody").innerHTML = `<div class="nums" id="nums"></div>
+  state.ref = ref; state.sel = n === null || Number.isNaN(n) ? null : n - 1; state.reqMissing = Number.isNaN(n) ? request : null;
+  state.openSources = new Set(); state.series = null; state.detail = null; state.sessErr = null;
+  openPanel(s ? s.project + (s.name ? " · " + s.name : "") : "Session " + ref);
+  $("panelbody").innerHTML = `<div id="reqnote" class="amber"></div><div class="nums" id="nums"></div>
     <div class="box" id="chartbox"><div id="head"></div><svg id="chart"></svg></div>
     <div class="box" id="treebox"><svg id="tree"></svg></div>
     <div class="claim" id="excerpt" style="margin-top:10px"></div>
@@ -642,9 +697,14 @@ async function loadSession() {
     const series = await api("/api/session?ref=" + ref);
     if (ref !== state.ref) return;
     state.series = series;
-    if (state.sel !== null && state.sel >= series.points.length) state.sel = null;
+    if (state.sel !== null && state.sel >= series.points.length) { state.reqMissing = String(state.sel + 1); state.sel = null; }
     await loadDetail();
-  } catch (e) { state.series = null; state.detail = null; }
+  } catch (e) {
+    if (ref !== state.ref) return;
+    state.series = null; state.detail = null; state.sessErr = /\b404\b/.test(e.message) ? "Session not found. It is outside the served directories or was deleted." : "Could not read this session: " + e.message;
+    $("panelbody").innerHTML = `<p class="amber">${esc(state.sessErr)}</p>`;
+    return;
+  }
   render();
 }
 
@@ -655,7 +715,7 @@ async function loadDetail() {
   try { state.detail = await api("/api/request?ref=" + state.ref + "&i=" + i); } catch { state.detail = null; }
 }
 
-async function select(i) { state.sel = i; await loadDetail(); render(); }
+async function select(i) { state.sel = i; state.reqMissing = null; setUrl(sessionUrl(state.ref, i + 1), false); await loadDetail(); render(); }
 
 function svg(tag, attrs, parent) {
   const e = document.createElementNS(NS, tag);
@@ -809,10 +869,16 @@ function renderNums() {
   top.querySelectorAll(".seg.g").forEach(el => el.onclick = () => { const k = el.dataset.s; state.openSources.has(k) ? state.openSources.delete(k) : state.openSources.add(k); renderNums(); });
 }
 
-function render() { if (!$("chart")) return; renderChart(); renderTree(); renderNums(); }
+function render() {
+  if (!$("chart")) return;
+  const n = state.series ? state.series.points.length : 0;
+  $("reqnote").textContent = state.reqMissing ? `Request ${state.reqMissing} not found (this session has ${n}). Showing the latest.` : "";
+  renderChart(); renderTree(); renderNums(); }
 
 $("close").onclick = closePanel;
-$("memctl").onclick = () => openMemory();
+$("copylink").onclick = copyLink;
+addEventListener("popstate", () => route());
+$("memctl").onclick = () => nav("/memory");
 addEventListener("keydown", ev => { if (ev.key === "Escape" && $("panel").classList.contains("open") && !/^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName)) closePanel(); });
 addEventListener("resize", () => { if (state.ref) render(); });
 
@@ -832,7 +898,8 @@ function connect() {
     if (state.ref && path && state.series && state.series.path === path) await loadSession();
   };
 }
-refresh().catch(() => {}).then(() => { if (localStorage.getItem("attention.panel") === "memory") openMemory(); }).then(connect);
+localStorage.removeItem("attention.panel");
+refresh().catch(() => {}).then(() => route()).then(connect);
 refreshMemory();
 setInterval(() => { refresh().catch(() => {}); renderRail(); refreshMemory(); }, 15000);
 </script>

@@ -458,3 +458,32 @@ describe("helpers", () => {
 		rmSync(dir, { recursive: true });
 	});
 });
+
+describe("page routes", () => {
+	const ref = "0123456789abcdef";
+	const pages = ["/", "/memory", "/memory/pick-up-x-1", "/memory?state=done&q=a%20b&repo=%2Fw&session=" + ref, "/decision/s-1:e-2", "/decision/s-1%3Ae-2", "/session/" + ref, "/session/" + ref + "?request=3"];
+	const bad = ["/review", "/decision", "/decision/", "/decision/nocolon", "/decision/a:b:c", "/decision/a%2F:b", "/memory/", "/memory/Upper", "/memory/" + "a".repeat(81), "/memory/a/b", "/session/abc", "/session/" + ref.toUpperCase(), "/session/" + ref + "/x", "/decision/%E0%A4%A:x", "/index.html"];
+
+	it("serves the page with token and boot meta on every route", async () => {
+		await boot();
+		const root = (await http("GET", "/")).text;
+		for (const path of pages) {
+			const r = await http("GET", path);
+			expect(r.status, path).toBe(200);
+			expect(r.text, path).toMatch(/name="attention-token" content="[0-9a-f]{32}"/);
+			expect(r.text, path).toMatch(/name="attention-boot" content="[0-9a-f]{16}"/);
+			expect(r.text.replace(/content="[0-9a-f]+"/g, ""), path).toBe(root.replace(/content="[0-9a-f]+"/g, ""));
+		}
+	});
+
+	it("404s other shapes and bad segments", async () => {
+		await boot();
+		for (const path of bad) expect((await http("GET", path)).status, path).toBe(404);
+	});
+
+	it("still applies the Host check and leaves POST on page paths rejected", async () => {
+		await boot();
+		for (const path of pages) expect((await http("GET", path, { headers: { host: "evil.example" } })).status, path).toBe(403);
+		expect((await http("POST", "/memory", { headers: { origin: `http://127.0.0.1:${running!.port}` }, body: "{}" })).status).toBe(403);
+	});
+});
