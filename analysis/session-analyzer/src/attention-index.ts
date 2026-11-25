@@ -177,10 +177,12 @@ export interface AttentionPayload {
 		sessionRef: string;
 		project: string;
 		name: string | null;
-		verdict: "useful" | "noise" | null;
+		verdict: "agree" | "noise" | null;
 		saving: Saving | null;
-		/** No verdict, no linked outcome, and the session is not idle: a decision can still change the run. */
+		/** No verdict, no linked outcome, and younger than PASS_AFTER_MS. */
 		actionable: boolean;
+		/** No verdict and no linked outcome for PASS_AFTER_MS: counted as passive agreement, apart from clicked agree. */
+		passed: boolean;
 		saved: Saved | null;
 		/** What "Save to memory" would write; the page lets the user edit it first. */
 		memoryDraft: { title: string; status: string };
@@ -188,8 +190,11 @@ export interface AttentionPayload {
 	/** Open decisions in display order; `keys` has more than one entry when repeats from one turn are collapsed. */
 	decisions: { keys: string[]; tier: 1 | 2 }[];
 	outcomes: (Omit<Outcome, "sessionPath"> & { sessionRef: string; project: string; name: string | null })[];
-	stats: { catches: number; useful: number; noise: number; esc: number; rewind: number; steer: number };
+	stats: { catches: number; agree: number; noise: number; passed: number; esc: number; rewind: number; steer: number };
 }
+
+/** A catch nobody reacted to leaves the decision list after this long (Laurenz: 8 hours). */
+export const PASS_AFTER_MS = 8 * 3_600_000;
 
 export function buildAttention(
 	all: Summary[],
@@ -234,6 +239,7 @@ export function buildAttention(
 				...label,
 				verdict: verdicts.get(key)?.verdict ?? null,
 				actionable: false,
+				passed: false,
 				saved: saved.get(key) ?? null,
 				memoryDraft: defaultMemoryDraft(s.project, c.decision),
 			});
@@ -242,7 +248,7 @@ export function buildAttention(
 	}
 	for (const v of sessions) for (const x of [v, ...v.subs]) x.memoryCount = options.memoryCounts?.get(x.ref) ?? 0;
 	const listed = sessions.filter((v) => v.mtime >= cutoff || v.subs.some((x) => x.mtime >= cutoff));
-	const decisions = rankSessions(listed, catches, all, focused);
+	const decisions = rankSessions(listed, catches, all, focused, now);
 	const newest = (a: { timestamp: string }, b: { timestamp: string }) => Date.parse(b.timestamp) - Date.parse(a.timestamp);
 	catches.sort(newest);
 	outcomes.sort(newest);
@@ -257,8 +263,9 @@ export function buildAttention(
 		outcomes,
 		stats: {
 			catches: catches.length,
-			useful: catches.filter((c) => c.verdict === "useful").length,
+			agree: catches.filter((c) => c.verdict === "agree").length,
 			noise: catches.filter((c) => c.verdict === "noise").length,
+			passed: catches.filter((c) => c.passed).length,
 			esc: count("esc"),
 			rewind: count("rewind"),
 			steer: count("steer"),
@@ -273,12 +280,17 @@ export function buildAttention(
  * working session first, then other actionable ones; unfocused sessions before the focused one, then
  * oldest first. Catches from one turn collapse into one decision.
  */
-function rankSessions(sessions: SessionView[], catches: AttentionPayload["catches"], all: Summary[], focused: string | null): AttentionPayload["decisions"] {
+function rankSessions(sessions: SessionView[], catches: AttentionPayload["catches"], all: Summary[], focused: string | null, now: number): AttentionPayload["decisions"] {
 	const answered = new Set<string>();
 	for (const s of all) for (const o of s.outcomes) if (o.catchKey) answered.add(o.catchKey);
 	const status = new Map<string, Status>();
 	for (const v of sessions) for (const x of [v, ...v.subs]) status.set(x.id, x.status);
-	for (const c of catches) c.actionable = !c.verdict && !answered.has(c.key) && (status.get(c.sessionId) ?? "idle") !== "idle";
+	for (const c of catches) {
+		const unanswered = !c.verdict && !answered.has(c.key);
+		const old = now - Date.parse(c.timestamp) >= PASS_AFTER_MS;
+		c.actionable = unanswered && !old;
+		c.passed = unanswered && old;
+	}
 	const open = new Map<string, number>();
 	for (const c of catches) if (c.actionable) open.set(c.sessionId, (open.get(c.sessionId) ?? 0) + 1);
 	for (const v of sessions) {

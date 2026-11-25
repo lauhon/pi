@@ -643,13 +643,15 @@ confirms or corrects each answer.
 **Endpoints** (`src/serve.ts`, `src/attention-index.ts`)
 - `GET /api/attention?hours=24`: sessions with nested sub-runs, catches and outcomes newest first with verdicts, `focused` (session id from `cmux tree --json`, at most every 3 s; title "π - <name> - <project>" or "π - <project>"), counts.
 - `POST /api/steer` {sessionId, text}: main session -> `$PI_ATTENTION_DIR/steer/<id>/<timestamp>-<n>.md`; sub-run -> `<run>/inbox/NNNNNN.md` with the next sequence as `sub resume` picks it.
-- `POST /api/verdict` {catchKey, verdict useful|noise}: appends to `$PI_ATTENTION_DIR/verdicts.jsonl` (`{catchKey, verdict, at}`; last line wins).
+- `POST /api/verdict` {catchKey, verdict agree|noise|none}: appends to `$PI_ATTENTION_DIR/verdicts.jsonl` (`{catchKey, verdict, at}`; last line wins; v1 `useful` lines read as agree). Agree: the assumption was right and worth seeing (one click on the card). Noise: not worth showing. A wrong assumption is answered by a steer, which the outcome extractor records.
+- A catch with no verdict and no linked outcome leaves the decision list 8 hours after it was made (`passed`, label "No reaction in 8h"); it counts as passive agreement, apart from clicked agree.
 - `POST /api/memory` {catchKey, title?, status?}: new work-memory item (`WORK_MEMORY_DIR`) with the session cwd and a link to the session file.
 - POSTs need Host 127.0.0.1/localhost, `Origin` equal to the server origin, and the per-start token (injected into the page as a meta tag, sent as `x-attention-token`); otherwise 403. Body limit 16 KB (413). `sessionId` and `catchKey` must belong to a session of the last 14 days.
 - `cmux notify` runs once per new catch from a non-focused session, started from the file watcher.
 
 **One-week check**
 1. Number of catches (`stats.catches`, or `verdicts.jsonl` plus the catch list).
-2. Share marked useful: useful / (useful + noise). Unmarked catches count as neither.
-3. `esc` and `rewind` per session, for sessions with the tool loaded vs the week before (from session files; the outcome extractor runs on old files too).
-Add the pre-send check and the watcher only if the useful share holds up.
+2. Agent right vs wrong: (agree + passed) vs steer-linked catches; clicked agree and passed reported separately.
+3. Signal quality: noise / all catches with a verdict. A high share means the `assumption` rule fires too often.
+4. `esc` and `rewind` per session, for sessions with the tool loaded vs the week before (from session files; the outcome extractor runs on old files too).
+Add the pre-send check and the watcher only if the noise share stays low.

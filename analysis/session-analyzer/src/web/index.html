@@ -293,17 +293,41 @@ function decisionRow(c, extra, handled) {
   d.innerHTML = `<div class="body"><div class="head">${!handled && isNew(c) ? '<span class="newlabel">New</span>' : ""}${esc(clip(c.decision, 110))}</div>
     <div class="why">${esc(clip(c.basis || (c.alternatives.length ? "Instead: " + c.alternatives.join(" · ") : ""), 100))}</div>
     <div class="meta"><span class="${handled ? "" : "tag"}">${label}</span> · ${esc(c.project)}${c.name ? " · " + esc(c.name) : ""} · ${ago(Date.parse(c.timestamp))} ago${more}${steer ? " · " + steer : ""}</div></div>
-    ${handled ? "" : '<button class="act pri" data-a="steer">Steer</button>'}`;
-  d.onclick = ev => nav(catchUrl(c.key), { steer: ev.target.dataset && ev.target.dataset.a === "steer" });
+    ${handled ? "" : '<button class="act" data-a="agree" title="The assumption is right and worth seeing">Agree</button><button class="act pri" data-a="steer">Steer</button>'}`;
+  d.onclick = ev => {
+    if (ev.target.dataset && ev.target.dataset.a === "agree") return agree(c);
+    nav(catchUrl(c.key), { steer: ev.target.dataset && ev.target.dataset.a === "steer" });
+  };
   d.onkeydown = ev => { if (ev.key === "Enter" && ev.target === d) nav(catchUrl(c.key)); };
   return d;
 }
 
 function handledLabel(c) {
-  if (c.verdict) return c.verdict === "useful" ? "Useful" : "Noise";
-  if (state.att.outcomes.some(o => o.catchKey === c.key)) return "Corrected later";
+  if (c.verdict) return c.verdict === "agree" ? "Agreed" : "Noise";
+  const outs = state.att.outcomes.filter(o => o.catchKey === c.key);
+  if (outs.some(o => o.type === "steer")) return "Steered";
+  if (outs.length) return "Corrected later";
+  if (c.passed) return "No reaction in 8h";
   if (c.saved) return "Saved to memory";
-  return "Session idle";
+  return "Handled";
+}
+
+// One click from the card: the catch leaves the list, with a short Undo.
+async function agree(c) {
+  try {
+    markSeen([c.key]);
+    await post("/api/verdict", { catchKey: c.key, verdict: "agree" });
+    state.agreed = { key: c.key, text: c.decision, until: Date.now() + 6000 };
+    setTimeout(() => { if (state.agreed && Date.now() >= state.agreed.until) { state.agreed = null; renderDecisions(); } }, 6100);
+    await refresh();
+  } catch (e) { state.agreed = { key: c.key, text: "Agree failed: " + e.message, until: Date.now() + 6000, failed: true }; renderDecisions(); }
+}
+async function undoAgree() {
+  const a = state.agreed;
+  if (!a) return;
+  state.agreed = null;
+  try { await post("/api/verdict", { catchKey: a.key, verdict: "none" }); } catch {}
+  await refresh().catch(() => {});
 }
 
 function renderDecisions() {
@@ -313,7 +337,14 @@ function renderDecisions() {
   const list = a.decisions.map(d => ({ c: catchByKey(d.keys[0]), extra: d.keys.length - 1 })).filter(x => x.c);
   $("dcount").textContent = list.length ? `${list.length} open` : "";
   el.innerHTML = "";
-  if (!list.length) el.innerHTML = '<div id="none">No decisions need you. Sessions are still listed at left.</div>';
+  const ag = state.agreed && Date.now() < state.agreed.until ? state.agreed : null;
+  if (ag) {
+    const t = document.createElement("div"); t.className = "toast";
+    t.innerHTML = ag.failed ? `<span class="red">${esc(ag.text)}</span>` : `<span class="green">Agreed:</span> ${esc(clip(ag.text, 70))} <button>Undo</button>`;
+    if (!ag.failed) t.querySelector("button").onclick = undoAgree;
+    el.appendChild(t);
+  }
+  if (!list.length) el.insertAdjacentHTML("beforeend", '<div id="none">No decisions need you. Sessions are still listed at left.</div>');
   for (const x of (state.moreDecisions ? list : list.slice(0, DECISIONS_SHOWN))) el.appendChild(decisionRow(x.c, x.extra, false));
   if (list.length > DECISIONS_SHOWN) {
     const b = document.createElement("button");
@@ -420,7 +451,7 @@ function renderMemTools() {
   const m = state.mem, tabs = $("memtabs");
   if (!tabs) return;
   tabs.innerHTML = MEM_STATES.map(([k, label]) => `<button data-st="${k}" class="${m.state === k ? "on" : ""}">${label}${m.counts ? " " + m.counts[k] : ""}</button>`).join("");
-  tabs.querySelectorAll("button").forEach(b => b.onclick = () => { m.state = b.dataset.st; m.expanded = null; m.session = null; m.focus = null; setUrl(memUrl(), false); loadMemory(); });
+  tabs.querySelectorAll("button").forEach(b => b.onclick = () => { m.state = b.dataset.st; m.expanded = null; m.session = null; if (m.focus && m.q === m.focus) { m.q = ""; $("memq").value = ""; } m.focus = null; setUrl(memUrl(), false); loadMemory(); });
   const ses = $("memsess");
   ses.innerHTML = m.session ? `Linked to ${esc(m.session.label)} <button class="link">Show all</button>` : "";
   if (m.session) ses.querySelector("button").onclick = () => { m.session = null; m.focus = null; setUrl(memUrl(), false); loadMemory(); };
@@ -623,7 +654,7 @@ function renderCatchPanel(force) {
   const sav = c.saving ? `<div class="out">Observed work between this catch and your ${c.saving.via === "esc" ? "Esc correction" : c.saving.via === "rewind" ? "rewind" : "steer"}: ${fmtCost(c.saving.cost)} and ${fmtK(c.saving.tokens)} tokens over ${c.saving.requests} request${c.saving.requests === 1 ? "" : "s"}. Estimate: input, output and cache-write tokens; not money saved.</div>` : "";
   const steerSt = steerLine(c.key);
   const draft = c.memoryDraft, md = state.drafts["mem:" + c.key] || {};
-  const verdict = c.verdict ? `<span class="${c.verdict === "useful" ? "green" : "dim"}">Marked ${c.verdict}.</span> <button data-a="undo">Undo</button>` : "";
+  const verdict = c.verdict ? `<span class="${c.verdict === "agree" ? "green" : "dim"}">${c.verdict === "agree" ? "Agreed" : "Marked noise"}.</span> <button data-a="undo">Undo</button>` : c.passed ? '<span class="dim">No reaction within 8 hours.</span>' : "";
   const saved = c.saved ? `<div><span class="green">Saved</span> to work memory as <code>${esc(c.saved.itemId)}</code>. <button class="link" data-a="item">View item</button></div>` : `
     <label class="f">Title</label><input type="text" id="memtitle" maxlength="200" value="${esc(md.title ?? draft.title)}">
     <label class="f">Status</label><input type="text" id="memstatus" maxlength="500" value="${esc(md.status ?? draft.status)}">
@@ -640,7 +671,7 @@ function renderCatchPanel(force) {
       <textarea id="steertext" placeholder="Message to this session. Nothing is sent until you press Send.">${esc(state.drafts[c.key] || "")}</textarea>
       <div class="row2"><button class="pri" data-a="send">${idle ? "Send anyway" : "Send"}</button><span class="state">${steerSt}</span><span class="red">${esc(state.msg[c.key] || "")}</span></div></div>
     <div class="sect"><h3>Memory</h3>${saved}</div>
-    <div class="sect"><h3>Verdict</h3><div class="row2"><button data-a="useful" class="${c.verdict === "useful" ? "sel" : ""}">Useful</button><button data-a="noise" class="${c.verdict === "noise" ? "sel" : ""}">Noise</button>${verdict}</div></div>`;
+    <div class="sect"><h3>Verdict</h3><div class="claim">Agree: right and worth seeing. Noise: don't show things like this. If it's wrong, steer.</div><div class="row2"><button data-a="agree" class="${c.verdict === "agree" ? "sel" : ""}">Agree</button><button data-a="noise" class="${c.verdict === "noise" ? "sel" : ""}">Noise</button>${verdict}</div></div>`;
   const ta = $("steertext");
   if (ta) ta.oninput = () => { state.drafts[c.key] = ta.value; };
   const mt = $("memtitle"), ms = $("memstatus");

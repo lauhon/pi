@@ -165,17 +165,19 @@ describe("status", () => {
 describe("verdicts and sub-runs", () => {
 	it("appends and reads verdicts, last one wins, skips bad lines", () => {
 		const d = tmp();
-		appendVerdict("s:e1", "useful", d, 1000);
+		appendVerdict("s:e1", "agree", d, 1000);
 		appendVerdict("s:e1", "noise", d, 2000);
-		appendVerdict("s:e2", "useful", d, 3000);
+		appendVerdict("s:e2", "agree", d, 3000);
 		writeFileSync(join(d, "verdicts.jsonl"), "garbage\n", { flag: "a" });
 		const v = readVerdicts(d);
 		expect(v.get("s:e1")?.verdict).toBe("noise");
-		expect(v.get("s:e2")?.verdict).toBe("useful");
+		expect(v.get("s:e2")?.verdict).toBe("agree");
 		expect(readVerdicts(join(d, "none")).size).toBe(0);
 		appendVerdict("s:e2", "none", d, 4000);
 		expect(readVerdicts(d).has("s:e2")).toBe(false);
 		expect(readVerdicts(d).get("s:e1")?.verdict).toBe("noise");
+		writeFileSync(join(d, "verdicts.jsonl"), `${JSON.stringify({ catchKey: "s:e3", verdict: "useful", at: "x" })}\n`, { flag: "a" });
+		expect(readVerdicts(d).get("s:e3")?.verdict).toBe("agree");
 	});
 	it("reads the parent of a sub-run dir", () => {
 		const d = tmp();

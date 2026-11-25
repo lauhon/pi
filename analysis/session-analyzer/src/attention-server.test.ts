@@ -215,7 +215,7 @@ describe("POST security", () => {
 		expect(await post("/api/steer", { sessionId: "main-1", text: "x".repeat(17_000) })).toBe(413);
 		expect(await post("/api/steer", { sessionId: "nope", text: "x" })).toBe(404);
 		expect(await post("/api/steer", { sessionId: "main-1", text: "  " })).toBe(400);
-		expect(await post("/api/verdict", { catchKey: "main-1:zzz", verdict: "useful" })).toBe(404);
+		expect(await post("/api/verdict", { catchKey: "main-1:zzz", verdict: "agree" })).toBe(404);
 		expect(await http("POST", "/api/steer", { headers: good, body: "{" }).then((r) => r.status)).toBe(400);
 	});
 });
@@ -244,14 +244,14 @@ describe("POST actions", () => {
 		write(join(sessions, "a.jsonl"), mainSession("main-1", "reset", "/work/gls"));
 		const { good, get } = await boot();
 		const key = (await get()).catches[0].key as string;
-		const v = await http("POST", "/api/verdict", { headers: good, body: JSON.stringify({ catchKey: key, verdict: "useful" }) });
+		const v = await http("POST", "/api/verdict", { headers: good, body: JSON.stringify({ catchKey: key, verdict: "agree" }) });
 		expect(v.status).toBe(200);
 		expect((await http("POST", "/api/verdict", { headers: good, body: JSON.stringify({ catchKey: key, verdict: "bogus" }) })).status).toBe(400);
-		expect(JSON.parse(readFileSync(join(adir, "verdicts.jsonl"), "utf8").trim())).toMatchObject({ catchKey: key, verdict: "useful" });
-		expect((await get()).catches[0].verdict).toBe("useful");
+		expect(JSON.parse(readFileSync(join(adir, "verdicts.jsonl"), "utf8").trim())).toMatchObject({ catchKey: key, verdict: "agree" });
+		expect((await get()).catches[0].verdict).toBe("agree");
 		expect((await http("POST", "/api/verdict", { headers: good, body: JSON.stringify({ catchKey: key, verdict: "none" }) })).status).toBe(200);
 		expect((await get()).catches[0].verdict).toBeNull();
-		await http("POST", "/api/verdict", { headers: good, body: JSON.stringify({ catchKey: key, verdict: "useful" }) });
+		await http("POST", "/api/verdict", { headers: good, body: JSON.stringify({ catchKey: key, verdict: "agree" }) });
 		const m = await http("POST", "/api/memory", { headers: good, body: JSON.stringify({ catchKey: key }) });
 		expect(m.status).toBe(200);
 		const item = JSON.parse(readFileSync(join(root, "mem", "items.jsonl"), "utf8").trim());
@@ -288,6 +288,7 @@ describe("decisions", () => {
 		write(join(sessions, "c.jsonl"), mk("focused-scope", "c", 90, [{ kind: "scope", decision: "C" }], true));
 		write(join(sessions, "d.jsonl"), mk("waiting", "d", 5, [{ kind: "other", decision: "D" }], false));
 		write(join(sessions, "e.jsonl"), mk("idle", "e", 600, [{ kind: "scope", decision: "E" }], false));
+		write(join(sessions, "f.jsonl"), mk("idle-recent", "f", 180, [{ kind: "scope", decision: "F" }], false));
 		tree = focusTree("π - c - gls");
 		const { get, good } = await boot();
 		const body = await get();
@@ -296,12 +297,21 @@ describe("decisions", () => {
 			[1, ["A"]],
 			[1, ["B1", "B2"]],
 			[1, ["C"]],
+			[2, ["F"]],
 			[2, ["D"]],
 		]);
-		expect(body.catches.find((c: { decision: string }) => c.decision === "E").actionable).toBe(false);
+		const e = body.catches.find((c: { decision: string }) => c.decision === "E");
+		expect([e.actionable, e.passed]).toEqual([false, true]);
+		expect(body.stats.passed).toBe(1);
 		const first = body.catches.find((c: { decision: string }) => c.decision === "A").key;
 		await http("POST", "/api/verdict", { headers: good, body: JSON.stringify({ catchKey: first, verdict: "noise" }) });
-		expect((await get()).decisions).toHaveLength(3);
+		expect((await get()).decisions).toHaveLength(4);
+		const f = body.catches.find((c: { decision: string }) => c.decision === "F").key;
+		await http("POST", "/api/verdict", { headers: good, body: JSON.stringify({ catchKey: f, verdict: "agree" }) });
+		const after = await get();
+		expect(after.decisions).toHaveLength(3);
+		expect(after.stats).toMatchObject({ agree: 1, noise: 1, passed: 1 });
+		expect(after.catches.find((c: { key: string }) => c.key === f)).toMatchObject({ verdict: "agree", actionable: false, passed: false });
 	});
 });
 

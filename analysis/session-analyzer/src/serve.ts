@@ -563,7 +563,7 @@ export function startServer(options: ServeOptions): Promise<RunningServer> {
 			case "/api/verdict": {
 				const key = field(body, "catchKey", 300)!;
 				const verdict = field(body, "verdict", 10)!;
-				if (verdict !== "useful" && verdict !== "noise" && verdict !== "none") throw new ApiError(400, "bad verdict");
+				if (verdict !== "agree" && verdict !== "noise" && verdict !== "none") throw new ApiError(400, "bad verdict");
 				if (!known.some((s) => s.catches.some((c) => `${c.sessionId}:${c.entryId}` === key))) throw new ApiError(404, "unknown catch");
 				appendVerdict(key, verdict, adir);
 				return { ok: true };

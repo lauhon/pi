@@ -288,7 +288,8 @@ export function subRunInfo(sessionPath: string): { name: string; parentId: strin
 
 // ── verdicts ───────────────────────────────────────────────────────────────
 
-export type Verdict = "useful" | "noise";
+/** agree: the assumption was right and worth seeing. noise: not worth showing. A wrong one is answered by a steer. */
+export type Verdict = "agree" | "noise";
 /** "none" withdraws the previous verdict (Undo). */
 export type VerdictInput = Verdict | "none";
 
@@ -304,7 +305,9 @@ export function readVerdicts(dir = attentionDir()): Map<string, { verdict: Verdi
 		try {
 			const v = JSON.parse(line) as { catchKey?: unknown; verdict?: unknown; at?: unknown };
 			if (typeof v.catchKey !== "string") continue;
-			if (v.verdict === "useful" || v.verdict === "noise") out.set(v.catchKey, { verdict: v.verdict, at: str(v.at) });
+			// "useful" is the v1 name; it meant the same as agree for a catch nobody steered.
+			if (v.verdict === "agree" || v.verdict === "useful") out.set(v.catchKey, { verdict: "agree", at: str(v.at) });
+			else if (v.verdict === "noise") out.set(v.catchKey, { verdict: "noise", at: str(v.at) });
 			else if (v.verdict === "none") out.delete(v.catchKey);
 		} catch {
 			// a partial line from a crash
