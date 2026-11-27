@@ -40,7 +40,7 @@ acli jira workitem view DPSCEP-123
 
 ## Create tickets
 
-Use `--from-json` with ADF (Atlassian Document Format) for descriptions:
+Use `--from-json` with ADF (Atlassian Document Format) for descriptions. Every new ticket gets the label `grooming`, unless the user asks otherwise:
 
 ```bash
 acli jira workitem create --from-json /tmp/ticket.json
@@ -52,7 +52,7 @@ acli jira workitem create --from-json /tmp/ticket.json
   "projectKey": "DPSCEP",
   "type": "Task",
   "parentIssueId": "DPSCEP-531",
-  "labels": ["my-label"],
+  "labels": ["grooming"],
   "description": { "type": "doc", "version": 1, "content": [...] },
   "additionalAttributes": {
     "components": [{"name": "My Component"}]
